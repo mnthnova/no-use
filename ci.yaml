@@ -1,0 +1,126 @@
+build_docs:
+  script:
+    # ==========================================
+    # STEP 1: INITIALIZE BOT & RUN 2-WAY SYNC
+    # ==========================================
+    - echo "Checking for bidirectional RST sync..."
+    - if [ -d "content_ja" ]; then
+        git config --global user.email "ci-bot@yourcompany.com";
+        git config --global user.name "RST Sync Bot";
+        
+        # Run the Python engine to translate modified files
+        python3 scripts/sync_rst.py;
+        
+        # Commit and push safely using your Admin Token
+        git add content/ content_ja/;
+        git commit -m "Auto-synced RST translations [skip ci]" || echo "No sync needed";
+        git push "https://oauth2:${GIT_PUSH_TOKEN}@gitlab.com/your-group/your-repo.git" HEAD:"$CI_COMMIT_REF_NAME" || true;
+      fi
+
+    # ==========================================
+    # STEP 2: BUILD ALL BRANCHES
+    # ==========================================
+    - for branch in $(git branch -r | grep -v HEAD | sed 's|origin/||' | sort -u); do
+        git checkout "$branch"
+        source build_tag.env
+        
+        echo "Building Branch: $branch"
+        
+        # HYBRID LOGIC CHECK
+        if [ -d "content_ja" ]; then
+            echo "Japanese RSTs found. Building natively."
+            cp -r content/* docs/source/ || true
+            mkdir -p docs/source/ja
+            cp -r content_ja/* docs/source/ja/ || true
+
+            # English HTML & PDF
+            sphinx-build -Q -b html -D version="$branch" -D release="$branch" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source "public/$branch/current"
+            sphinx-build -Q -b simplepdf -D version="$branch" -D release="$branch" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source "latex/$branch/"
+
+            # Japanese HTML & PDF (Native)
+            sphinx-build -Q -c docs/source -b html -D language=ja -D version="$branch" -D release="$branch" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source/ja "public/$branch/current/ja"
+            sphinx-build -Q -c docs/source -b simplepdf -D language=ja -D version="$branch" -D release="$branch" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source/ja "latex/$branch/ja"
+        else
+            echo "No content_ja found. Falling back to PO translation."
+            cp -r content/* docs/source/ || true
+
+            # English HTML & PDF
+            sphinx-build -Q -b html -D version="$branch" -D release="$branch" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source "public/$branch/current"
+            sphinx-build -Q -b simplepdf -D version="$branch" -D release="$branch" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source "latex/$branch/"
+
+            # PO Fallback Generation
+            sphinx-build -Q -b gettext -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source docs/_build/gettext
+            sphinx-intl update -p docs/_build/gettext -d docs/source/locale -l ja
+            python3 scripts/auto_translate.py
+
+            # Japanese HTML & PDF (PO Fallback)
+            sphinx-build -Q -b html -D language=ja -D version="$branch" -D release="$branch" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source "public/$branch/current/ja"
+            sphinx-build -Q -b simplepdf -D language=ja -D version="$branch" -D release="$branch" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source "latex/$branch/ja"
+        fi
+
+        # Copy PDFs to final public directory
+        mkdir -p public/$branch/pdf/
+        mkdir -p public/$branch/current/pdf/
+        cp latex/$branch/*.pdf public/$branch/pdf/pdf.pdf || true
+        cp latex/$branch/ja/*.pdf public/$branch/current/pdf/pdf.pdf || true
+      done
+
+    # ==========================================
+    # STEP 3: BUILD ALL TAGS
+    # ==========================================
+    - for tag in $(git tag); do
+        git checkout "$tag"
+        source build_tag.env
+        
+        echo "Building Tag: $tag"
+        
+        if [ -d "content_ja" ]; then
+            cp -r content/* docs/source/ || true
+            mkdir -p docs/source/ja
+            cp -r content_ja/* docs/source/ja/ || true
+
+            sphinx-build -Q -b html -D version="$tag" -D release="$tag" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source "public/$tag/current"
+            sphinx-build -Q -b simplepdf -D version="$tag" -D release="$tag" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source "latex/$tag/"
+
+            sphinx-build -Q -c docs/source -b html -D language=ja -D version="$tag" -D release="$tag" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source/ja "public/$tag/current/ja"
+            sphinx-build -Q -c docs/source -b simplepdf -D language=ja -D version="$tag" -D release="$tag" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source/ja "latex/$tag/ja"
+        else
+            cp -r content/* docs/source/ || true
+
+            sphinx-build -Q -b html -D version="$tag" -D release="$tag" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source "public/$tag/current"
+            sphinx-build -Q -b simplepdf -D version="$tag" -D release="$tag" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source "latex/$tag/"
+
+            sphinx-build -Q -b gettext -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source docs/_build/gettext
+            sphinx-intl update -p docs/_build/gettext -d docs/source/locale -l ja
+            python3 scripts/auto_translate.py
+
+            sphinx-build -Q -b html -D language=ja -D version="$tag" -D release="$tag" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source "public/$tag/current/ja"
+            sphinx-build -Q -b simplepdf -D language=ja -D version="$tag" -D release="$tag" -t $PRODUCT_TAG -t $FORM_FACTOR_TAG docs/source "latex/$tag/ja"
+        fi
+
+        mkdir -p public/$tag/pdf/
+        mkdir -p public/$tag/current/pdf/
+        cp latex/$tag/*.pdf public/$tag/pdf/pdf.pdf || true
+        cp latex/$tag/ja/*.pdf public/$tag/current/pdf/pdf.pdf || true
+      done
+
+    # ==========================================
+    # STEP 4: GENERATE VERSIONS.JSON 
+    # ==========================================
+    - echo "Generating versions.json..."
+    - |
+      echo "[" > public/versions.json
+      BASE="$(echo $CI_PAGES_URL | sed 's|http\?://[^/]*||')"
+
+      printf '  {"name": "main", "type": "branch", "url": "%s/main/current/"},\n' "$BASE" >> public/versions.json
+
+      for tag in $(git tag); do
+          printf '  {"name": "%s", "type": "tag", "url": "%s/%s/current/"},\n' "$tag" "$BASE" "$tag" >> public/versions.json
+      done
+
+      sed -i '$ s/,$//' public/versions.json
+      echo "]" >> public/versions.json
+
+  artifacts:
+    paths:
+      - public
