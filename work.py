@@ -7,7 +7,7 @@ from docutils import nodes
 from docutils.parsers.rst import directives, Directive
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-INTERNAL_API_URL = "https://translator.tsip.intratmc.com/api/translate/text"
+INTERNAL_API_URL = ""
 
 # ==========================================
 # 1. SPHINX DIRECTIVE BYPASS
