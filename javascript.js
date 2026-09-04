@@ -1,49 +1,79 @@
-function robustTableDiff(oldContainer, newContainer) {
-    let oldTables = oldContainer.querySelectorAll('table');
-    let newTables = newContainer.querySelectorAll('table');
+currentContent.innerHTML = finalHtml; // Your existing line
 
-    for (let i = 0; i < newTables.length; i++) {
-        if (!oldTables[i]) continue;
+// --- 3. RESTORE TABLES AND APPLY ROBUST ROW DIFF ---
+let placeholders = currentContent.querySelectorAll('.diff-table-placeholder');
 
-        let oldRows = Array.from(oldTables[i].querySelectorAll('tr'));
-        let newRows = Array.from(newTables[i].querySelectorAll('tr'));
+placeholders.forEach((ph, i) => {
+    let newTable = newTables[i];
+    let oldTable = oldTables[i];
+    
+    if (newTable && oldTable) {
+        // Put the table back into the DOM where the placeholder was
+        ph.parentNode.replaceChild(newTable, ph);
 
+        let oldRows = Array.from(oldTable.querySelectorAll('tr'));
+        let newRows = Array.from(newTable.querySelectorAll('tr'));
+        
         // Extract raw text to compare row-by-row
         let oldRowTexts = oldRows.map(r => r.innerText.trim());
         let newRowTexts = newRows.map(r => r.innerText.trim());
-
         let insertedCount = 0;
 
-        // 1. Find Deleted Rows from the old version and inject them safely
+        // Find Deleted Rows from the old version and inject them safely
         oldRows.forEach((oldRow, index) => {
-            let text = oldRow.innerText.trim();
-            if (!newRowTexts.includes(text)) {
+            if (!newRowTexts.includes(oldRow.innerText.trim())) {
                 let deletedRow = oldRow.cloneNode(true);
                 deletedRow.classList.add('diff-deleted-row');
                 
-                // Insert it safely into the new table so structure NEVER breaks
-                let targetIndex = Math.min(index + insertedCount, newTables[i].rows.length);
-                let refRow = newTables[i].rows[targetIndex];
+                // Insert safely so structure NEVER breaks
+                let targetIndex = Math.min(index + insertedCount, newTable.rows.length);
+                let refRow = newTable.rows[targetIndex];
                 
                 if (refRow && refRow.parentNode) {
                     refRow.parentNode.insertBefore(deletedRow, refRow);
-                } else if (newTables[i].querySelector('tbody')) {
-                    newTables[i].querySelector('tbody').appendChild(deletedRow);
+                } else if (newTable.querySelector('tbody')) {
+                    newTable.querySelector('tbody').appendChild(deletedRow);
                 }
                 insertedCount++;
             }
         });
 
-        // 2. Find Added Rows in the new version
+        // Find Added Rows in the new version
         newRows.forEach(newRow => {
-            let text = newRow.innerText.trim();
-            if (!oldRowTexts.includes(text)) {
+            if (!oldRowTexts.includes(newRow.innerText.trim())) {
                 newRow.classList.add('diff-added-row');
             }
         });
-
-        // 3. Mark table so your text-diff library ignores it (prevents UI breaking)
-        newTables[i].classList.add('diff-processed-table');
-        newTables[i].setAttribute('data-diff-ignore', 'true');
     }
+});
+
+return 1; // Your existing return
+
+
+
+
+/* When diff is active, show deleted rows in red */
+.diff-deleted-row { 
+    background-color: #ffdce0 !important; 
+    color: #b31d28 !important; 
+    text-decoration: line-through; 
+}
+.diff-deleted-row td, .diff-deleted-row th {
+    text-decoration: line-through;
+}
+
+/* When diff is active, show added rows in green */
+.diff-added-row { 
+    background-color: #d4fcbc !important; 
+    color: #155724 !important; 
+}
+
+/* --- OPTIONAL: If you need to hide deleted rows when diff is OFF --- */
+/* If you ever strip the 'diffActive' state, you can hide them instantly: */
+body:not(.diff-active) .diff-deleted-row {
+    display: none !important;
+}
+body:not(.diff-active) .diff-added-row {
+    background-color: inherit !important;
+    color: inherit !important;
 }
