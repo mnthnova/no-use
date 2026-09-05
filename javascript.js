@@ -1,44 +1,64 @@
-// 1. DYNAMIC SCRIPT LOADER
+// 1. DYNAMIC SCRIPT LOADER (Using currentScript.src to find sibling files)
 function loadScript(src) {
     return new Promise((resolve, reject) => {
-        // Check if already loaded
+        // 1. Check if already loaded in DOM
         if (document.querySelector(`script[src="${src}"]`)) {
             resolve();
             return;
         }
+
+        // 2. Create script element
         const script = document.createElement('script');
         script.src = src;
+        script.type = 'text/javascript'; // Force strict MIME type to be JS
+        script.async = true;
+
         script.onload = resolve;
         script.onerror = () => reject(new Error(`Failed to load ${src}`));
+        
+        // 3. Append and start loading
         document.head.appendChild(script);
     });
 }
 
-// 2. CLEAR HIGHLIGHTS (Safe DOM removal)
-function clearHighlights() {
-    document.querySelectorAll('.diff-span-add, .diff-span-del').forEach(el => {
-        el.parentNode.replaceChild(document.createTextNode(el.textContent), el);
-    });
-    document.querySelectorAll('.diff-node-changed').forEach(el => {
-        el.classList.remove('diff-node-changed');
-    });
-}
+// ... [Your clearHighlights function remains exactly the same] ...
 
-// 3. THE MAIN DIFF FUNCTION (Calls the loader first)
+// 2. THE MAIN DIFF FUNCTION
 async function applyDiff(baseHTML, currentDoc) {
     clearHighlights();
 
-    // IMPORTANT: Load both libraries here, before using them!
+    // IMPORTANT: Determine the correct base path where THIS script is located
+    let basePath = '';
+    if (document.currentScript && document.currentScript.src) {
+        // This gets the full URL of visual-diff.js
+        let scriptUrl = document.currentScript.src; 
+        // Remove the filename to get the folder path
+        basePath = scriptUrl.substring(0, scriptUrl.lastIndexOf('/') + 1);
+    } else {
+        // Fallback if currentScript is not available (e.g., old browsers)
+        basePath = './';
+    }
+
+    // Load both libraries using the correct path
     try {
-        await loadScript('./diffDOM.js'); 
-        await loadScript('./diff_match_patch.js'); 
+        // If visual-diff.js is in /_static/, it will load /_static/diffDOM.js
+        await loadScript(basePath + 'diffDOM.js'); 
+        await loadScript(basePath + 'diff_match_patch.js'); 
     } catch (e) {
         console.error("Failed to load diff libraries:", e);
-        showToast('Error: Diff libraries failed to load', 'error');
+        showToast('Error: Diff libraries failed to load. Check path', 'error');
         return;
     }
 
-    // Now the globals exist (window.DiffDOM, window.diff_match_patch)
+    // Verify globals exist
+    if (typeof DiffDOM === 'undefined' || typeof diff_match_patch === 'undefined') {
+        console.error("Libraries loaded but globals not defined!");
+        showToast('Error: Library injection blocked by server', 'error');
+        return;
+    }
+
+    // ... [Rest of your applyDiff logic - No changes needed] ...
+    // The rest of your code...
     const parser = new DOMParser();
     const baseDoc = parser.parseFromString(baseHTML, 'text/html');
 
@@ -50,7 +70,6 @@ async function applyDiff(baseHTML, currentDoc) {
     const diffs = dd.diff(baseDoc, currentDoc);
     dd.apply(currentDoc.body, diffs);
 
-    // Word-by-word highlighting (Structure Safe)
     diffs.forEach(diff => {
         if (diff.action === 'modifyTextElement') {
             const parentElement = diff.node.parentElement;
@@ -63,8 +82,6 @@ async function applyDiff(baseHTML, currentDoc) {
             const textDiffs = dmp.diff_main(oldText, newText);
             dmp.diff_cleanupSemantic(textDiffs);
 
-            // CRITICAL: Rebuild text WITHOUT using innerHTML 
-            // so we don't destroy table structures!
             parentElement.innerHTML = ''; 
 
             textDiffs.forEach(part => {
@@ -79,7 +96,6 @@ async function applyDiff(baseHTML, currentDoc) {
                     span.textContent = text;
                     parentElement.appendChild(span);
                 } else if (op === -1) {
-                    // Shows the red/removed text (what was in previous HTML)
                     const span = document.createElement('span');
                     span.className = 'diff-span-del';
                     span.textContent = text;
@@ -90,15 +106,4 @@ async function applyDiff(baseHTML, currentDoc) {
     });
 
     showToast('Visual Diff : ON', 'success');
-}
-
-// 4. IMPORTANT: Inject CSS only once when the script loads
-if (!document.getElementById('diff-highlight-styles')) {
-    const style = document.createElement('style');
-    style.id = 'diff-highlight-styles';
-    style.innerHTML = `
-        .diff-span-add { background-color: #a5f3a5; color: #155724; text-decoration: none; border-radius: 2px; padding: 0 2px; }
-        .diff-span-del { background-color: #f3a5a5; color: #721c24; text-decoration: line-through; border-radius: 2px; padding: 0 2px; }
-    `;
-    document.head.appendChild(style);
 }
