@@ -1,4 +1,3 @@
-// 1. MAIN CONTROLLER: Protects tables and routes blocks to the inline differ
 function applyDiff(baseHTML, currentDoc) {
     clearHighlights();
 
@@ -13,51 +12,7 @@ function applyDiff(baseHTML, currentDoc) {
     const dmp = new window.diff_match_patch();
     currentContent.setAttribute('data-original-html', currentContent.innerHTML);
 
-    // PROTECT TABLE ROWS: Highlight new rows entirely so the grid never breaks
-    let baseRowsText = Array.from(baseContent.querySelectorAll('tr')).map(tr => tr.textContent.trim().replace(/\s+/g, ''));
-    Array.from(currentContent.querySelectorAll('tr')).forEach(row => {
-        if (!baseRowsText.includes(row.textContent.trim().replace(/\s+/g, ''))) {
-            row.style.backgroundColor = 'rgba(212, 252, 188, 0.4)';
-            row.setAttribute('data-diff-new-row', 'true');
-        }
-    });
-
-    // EXTRACT BLOCKS: Only target p, li, td, th elements inside the content
-    let baseElements = getContentElements(baseContent);
-    let currentElements = getContentElements(currentContent);
-
-    currentElements.forEach((currEl, index) => {
-        if (currEl.closest('tr[data-diff-new-row="true"]')) return;
-
-        let baseEl = baseElements[index];
-        let newText = currEl.textContent || "";
-
-        // Re-align elements if paragraphs shifted
-        if (!baseEl || (baseEl.textContent !== newText && baseElements.some(el => el.textContent === newText))) {
-            let foundMatch = baseElements.find(el => el.textContent === newText);
-            if (foundMatch) baseEl = foundMatch;
-        }
-
-        if (baseEl) {
-            // Only trigger the heavy token logic if the inner HTML actually changed
-            if (baseEl.innerHTML !== currEl.innerHTML) {
-                applyInlineDiff(currEl, baseEl.innerHTML, currEl.innerHTML, dmp);
-            }
-        } else {
-            // Brand new structural block outside of a table
-            currEl.style.borderLeft = '3px solid #28a745';
-            currEl.style.backgroundColor = 'rgba(212, 252, 188, 0.3)';
-            currEl.style.padding = '4px 8px';
-        }
-    });
-
-    return 1;
-}
-
-// 2. INLINE DIFFER: Your exact word-by-word token logic, safely contained
-function applyInlineDiff(currEl, oldHtml, newHtml, dmp) {
-    const autoNumRegex = /^((?:Section\s+|Table\s+)?[\d\.]+\s+)/i;
-
+    // 1. YOUR ORIGINAL, PERFECT TOKENIZER
     function tokenize(html) {
         let tokens = [];
         let regex = /(<[^>]+>)|([^<>\s]+)|(\s+)/g;
@@ -68,8 +23,9 @@ function applyInlineDiff(currEl, oldHtml, newHtml, dmp) {
         return tokens;
     }
 
-    let oldTokens = tokenize(oldHtml);
-    let newTokens = tokenize(newHtml);
+    // Tokenize the ENTIRE document at once to guarantee perfect word-by-word alignment
+    let oldTokens = tokenize(baseContent.innerHTML);
+    let newTokens = tokenize(currentContent.innerHTML);
 
     let tokenToChar = new Map();
     let charToToken = new Map();
@@ -95,40 +51,74 @@ function applyInlineDiff(currEl, oldHtml, newHtml, dmp) {
     let diffs = dmp.diff_main(oldStr, newStr);
     dmp.diff_cleanupSemantic(diffs);
 
-    let finalHtml = '';
-
-    diffs.forEach(part => {
-        let op = part[0];
-        let chars = part[1];
-
+    // Flatten diffs into a straightforward array of [operation, token] for easier handling
+    let tokenDiffs = [];
+    for (let i = 0; i < diffs.length; i++) {
+        let op = diffs[i][0];
+        let chars = diffs[i][1];
         for (let j = 0; j < chars.length; j++) {
-            let token = charToToken.get(chars[j]);
-            let isTag = token.startsWith('<') && token.endsWith('>');
-            let isWhitespace = /^\s+$/.test(token);
-            let isAutoNum = autoNumRegex.test(token);
+            tokenDiffs.push([op, charToToken.get(chars[j])]);
+        }
+    }
 
-            if (isTag) {
-                // Pass inline formatting tags (like <span class="blue">) through safely
+    let finalHtml = '';
+    let autoNumRegex = /^((?:Section\s+|Table\s+)?[\d\.]+\s+)/i;
+    let safeTagsRegex = /<\/?(table|thead|tbody|tr|th|td|ul|ol|li|div|dl|dt|dd|p|h[1-6])[ >]/i;
+
+    // 2. YOUR ORIGINAL ASSEMBLY LOOP (With the Table Break Fix)
+    for (let i = 0; i < tokenDiffs.length; i++) {
+        let op = tokenDiffs[i][0];
+        let token = tokenDiffs[i][1];
+        let isTag = token.startsWith('<') && token.endsWith('>');
+        let isWhitespace = /^\s+$/.test(token);
+        let isAutoNum = autoNumRegex.test(token);
+
+        if (isTag) {
+            if (op === 0 || op === 1) {
                 finalHtml += token;
-            } else {
-                if (op === 0) {
-                    finalHtml += token;
-                } else if (op === 1) {
-                    if (isWhitespace || isAutoNum) {
-                        finalHtml += token;
-                    } else {
-                        finalHtml += `<ins style="background: #d4fcbc; color: #155724; text-decoration: none; border-radius: 2px; padding: 1px 2px;">${token}</ins>`;
+            } else if (op === -1) {
+                // THE FIX: If a structural tag is deleted, check if Sphinx is just swapping an attribute.
+                if (safeTagsRegex.test(token)) {
+                    let baseTagMatch = token.match(/^<\/?([a-zA-Z0-9]+)/);
+                    let baseTag = baseTagMatch ? baseTagMatch[1].toLowerCase() : '';
+                    
+                    let hasReplacement = false;
+                    // Look ahead a few tokens to see if the same tag type is inserted right after
+                    for (let k = i + 1; k < Math.min(i + 15, tokenDiffs.length); k++) {
+                        let nextOp = tokenDiffs[k][0];
+                        let nextToken = tokenDiffs[k][1];
+                        if (nextOp === 1 && nextToken.startsWith('<') && nextToken.endsWith('>')) {
+                            let nextBaseTagMatch = nextToken.match(/^<\/?([a-zA-Z0-9]+)/);
+                            let nextBaseTag = nextBaseTagMatch ? nextBaseTagMatch[1].toLowerCase() : '';
+                            if (nextBaseTag === baseTag) {
+                                hasReplacement = true;
+                                break;
+                            }
+                        }
                     }
-                } else if (op === -1) {
-                    if (!isWhitespace && !isAutoNum) {
-                        finalHtml += `<del style="background: #ffdce0; color: #b31d28; text-decoration: line-through; border-radius: 2px; padding: 1px 2px;">${token}</del>`;
+                    
+                    // If a replacement is coming, drop this deleted tag to prevent duplicate tags from breaking the table.
+                    // If no replacement is coming (a true deletion), keep it so the structure stays balanced.
+                    if (!hasReplacement) {
+                        finalHtml += token;
                     }
                 }
             }
+        } else {
+            // TEXT HIGHLIGHTING
+            if (op === 0) {
+                finalHtml += token;
+            } else if (op === 1) {
+                if (isWhitespace || isAutoNum) finalHtml += token;
+                else finalHtml += `<ins style="background: #d4fcbc; color: #155724; text-decoration: none; border-radius: 2px; padding: 1px 2px;">${token}</ins>`;
+            } else if (op === -1) {
+                if (!isWhitespace && !isAutoNum) {
+                    finalHtml += `<del style="background: #ffdce0; color: #b31d28; text-decoration: line-through; border-radius: 2px; padding: 1px 2px;">${token}</del>`;
+                }
+            }
         }
-    });
+    }
 
-    currEl.style.borderLeft = '3px solid #ffc107';
-    currEl.style.paddingLeft = '8px';
-    currEl.innerHTML = finalHtml;
+    currentContent.innerHTML = finalHtml;
+    return 1;
 }
