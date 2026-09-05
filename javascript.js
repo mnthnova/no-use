@@ -1,113 +1,106 @@
+// 1. The Main Diff Controller
 function applyDiff(baseHTML, currentDoc) {
-    let baseDoc = new DOMParser().parseFromString(baseHTML, 'text/html');
+    clearHighlights(); 
+
+    let parser = new DOMParser();
+    let baseDoc = parser.parseFromString(baseHTML, 'text/html');
+
     let baseContent = getContentArea(baseDoc);
     let currentContent = getContentArea(currentDoc);
 
     if (!baseContent || !currentContent) {
-        console.error('Could Not Find Content Area');
+        console.log('Could Not Find Content Area');
         return;
     }
 
+    const dmp = new window.diff_match_patch();
     currentContent.setAttribute('data-original-html', currentContent.innerHTML);
 
-    const dmp = new window.diff_match_patch();
+    // Phase 1: Protect Table Rows from breaking
+    let baseRowsText = Array.from(baseContent.querySelectorAll('tr')).map(tr => tr.textContent.trim().replace(/\s+/g, ''));
+    let currentRows = Array.from(currentContent.querySelectorAll('tr'));
 
-    // 1. THE MAGIC REGEX FIX
-    function tokenize(html) {
-        let tokens = [];
-        // Matches entire table rows FIRST, then other tags, then words, then spaces.
-        let regex = /(<tr[^>]*>[\s\S]*?<\/tr>)|(<[^>]+>)|([^<>\s]+)|(\s+)/gi;
-        let match;
-        while ((match = regex.exec(html)) !== null) {
-            tokens.push(match[0]);
+    currentRows.forEach(row => {
+        let rowText = row.textContent.trim().replace(/\s+/g, '');
+        if (!baseRowsText.includes(rowText)) {
+            // New row detected: highlight the whole row safely, skip cell-by-cell diff
+            row.style.backgroundColor = '#d4fcbc'; 
+            row.setAttribute('data-diff-new-row', 'true'); 
         }
-        return tokens;
-    }
+    });
 
-    let oldTokens = tokenize(baseContent.innerHTML);
-    let newTokens = tokenize(currentContent.innerHTML);
+    // Phase 2: Get elements using your existing helper
+    let baseElements = getContentElements(baseContent);
+    let currentElements = getContentElements(currentContent);
 
-    let tokenToChar = new Map();
-    let charToToken = new Map();
-    let nextCharCode = 0xE000;
+    // Phase 3: Route to inline diffing
+    currentElements.forEach((currEl, index) => {
+        if (currEl.closest('tr[data-diff-new-row="true"]')) return; // Skip pre-handled new rows
 
-    function tokenToString(tokens) {
-        let str = '';
-        for (let i = 0; i < tokens.length; i++) {
-            let token = tokens[i];
-            if (!tokenToChar.has(token)) {
-                let char = String.fromCharCode(nextCharCode++);
-                tokenToChar.set(token, char);
-                charToToken.set(char, token);
-            }
-            str += tokenToChar.get(token);
+        let baseEl = baseElements[index];
+        let newText = currEl.textContent || "";
+
+        // Re-align if paragraphs were added/removed
+        if (!baseEl || (baseEl.textContent !== newText && baseElements.some(el => el.textContent === newText))) {
+            let foundMatch = baseElements.find(el => el.textContent === newText);
+            if (foundMatch) baseEl = foundMatch;
         }
-        return str;
-    }
 
-    let oldStr = tokenToString(oldTokens);
-    let newStr = tokenToString(newTokens);
-
-    let diffs = dmp.diff_main(oldStr, newStr);
-    dmp.diff_cleanupSemantic(diffs);
-
-    let finalHtml = '';
-    // Notice 'tr' is removed from safe tags because we handle it dynamically below
-    let safeTags = ['table', 'thead', 'tbody', 'th', 'td', 'ul', 'ol', 'li', 'div', 'dl', 'dt', 'dd'];
-
-    for (let i = 0; i < diffs.length; i++) {
-        let op = diffs[i][0];
-        let chars = diffs[i][1];
-
-        for (let j = 0; j < chars.length; j++) {
-            let token = charToToken.get(chars[j]);
-            
-            // Check if this token is our unbreakable table row
-            let isRow = /^<tr/i.test(token) && /<\/tr>$/i.test(token);
-            let isTag = token.startsWith('<') && token.endsWith('>') && !isRow;
-            let isWhitespace = /^\s+$/.test(token);
-
-            if (isRow) {
-                if (op === 0) {
-                    finalHtml += token;
-                } else if (op === 1) {
-                    // Added row: inject green inline styles perfectly into the tags
-                    let styled = token.replace(/<tr/gi, '<tr style="background-color: #d4fcbc !important; color: #155724 !important;"')
-                                      .replace(/<td/gi, '<td style="background-color: #d4fcbc !important; color: #155724 !important;"');
-                    finalHtml += styled;
-                } else if (op === -1) {
-                    // Deleted row: inject red inline styles perfectly into the tags
-                    let styled = token.replace(/<tr/gi, '<tr style="background-color: #ffdce0 !important; color: #b31d28 !important; text-decoration: line-through;"')
-                                      .replace(/<td/gi, '<td style="background-color: #ffdce0 !important; color: #b31d28 !important; text-decoration: line-through;"');
-                    finalHtml += styled;
-                }
-            } else if (isTag) {
-                let t = token.toLowerCase();
-                let isSafe = safeTags.some(tag => 
-                    t.startsWith('<' + tag + '>') || 
-                    t.startsWith('<' + tag + ' ') || 
-                    t.startsWith('</' + tag + '>')
-                );
-
-                if (isSafe) {
-                    finalHtml += token;
-                } else {
-                    if (op === 0 || op === 1) finalHtml += token;
-                }
-            } else {
-                if (op === 0) {
-                    finalHtml += token;
-                } else if (op === 1) {
-                    if (isWhitespace) finalHtml += token;
-                    else finalHtml += `<ins style="background: #d4fcbc; color: #155724; text-decoration: none; border-radius: 2px; padding: 1px 2px;">${token}</ins>`;
-                } else if (op === -1) {
-                    if (isWhitespace) finalHtml += token;
-                    else finalHtml += `<del style="background: #ffdce0; color: #b31d28; text-decoration: line-through; border-radius: 2px; padding: 1px 2px;">${token}</del>`;
-                }
-            }
+        if (baseEl) {
+            let oldText = baseEl.textContent || "";
+            // Send to the helper function
+            applyInlineDiff(currEl, oldText, newText, dmp);
+        } else {
+            // Entirely new block (e.g. a brand new paragraph)
+            currEl.style.borderLeft = '3px solid #28a745';
+            currEl.style.backgroundColor = 'rgba(212, 252, 188, 0.3)';
+            currEl.style.padding = '4px 8px';
         }
-    }
+    });
 
-    currentContent.innerHTML = finalHtml;
     return 1;
+}
+
+// 2. The Word-by-Word Inline Diff Helper
+function applyInlineDiff(currEl, oldText, newText, dmp) {
+    // Regex for Sphinx auto-numbers (e.g., "1. ", "1.2 ", "Section 3 ")
+    const autoNumRegex = /^((?:Section\s+|Table\s+)?[\d\.]+\s+)/i;
+    
+    let oldClean = oldText.replace(autoNumRegex, '');
+    let newClean = newText.replace(autoNumRegex, '');
+
+    // Only process if the actual content changed
+    if (oldClean !== newClean) {
+        let diffs = dmp.diff_main(oldClean, newClean);
+        dmp.diff_cleanupSemantic(diffs);
+
+        let resultHtml = '';
+        
+        // Safely re-attach the auto-number prefix if it exists
+        let match = newText.match(autoNumRegex);
+        if (match) {
+            resultHtml += match[0];
+        }
+
+        diffs.forEach(part => {
+            const type = part[0]; 
+            // Escape HTML characters so code snippets don't break the DOM
+            const text = part[1].replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            if (type === 0) {
+                resultHtml += text;
+            } else if (type === 1) {
+                resultHtml += `<ins style="background: #d4fcbc; color: #155724; text-decoration: none; border-radius: 2px; padding: 1px 2px;">${text}</ins>`;
+            } else if (type === -1) {
+                resultHtml += `<del style="background: #ffdce0; color: #b31d28; text-decoration: line-through; border-radius: 2px; padding: 1px 2px;">${text}</del>`;
+            }
+        });
+
+        // Apply visual markers to the container block
+        currEl.style.borderLeft = '3px solid #ffc107';
+        currEl.style.paddingLeft = '8px';
+        
+        // Inject the safe HTML back into the element
+        currEl.innerHTML = resultHtml;
+    }
 }
