@@ -9,14 +9,17 @@ function applyDiff(baseHTML, currentDoc) {
 
     if (!baseContent || !currentContent) return;
 
+    // Use your locally installed diff_match_patch library
     const dmp = new window.diff_match_patch();
     currentContent.setAttribute('data-original-html', currentContent.innerHTML);
 
-
+    // --- THE FIX: STRIP SPHINX NOISE ---
+    // This removes changing IDs and alternating row colors so the diff engine 
+    // doesn't hallucinate structural changes and break the tables.
     function sanitizeSphinxNoise(html) {
         return html
-            .replace(/\s+id="id\d+"/gi, '') // Strips id="id1", id="id2", etc.
-            .replace(/\s+class="(?:row-odd|row-even)"/gi, ''); // Strips alternating table classes
+            .replace(/\s+id="id\d+"/gi, '') 
+            .replace(/\s+class="[^"]*(?:row-odd|row-even)[^"]*"/gi, '');
     }
 
     let oldHtmlString = sanitizeSphinxNoise(baseContent.innerHTML);
