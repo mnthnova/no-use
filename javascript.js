@@ -11,13 +11,19 @@
         basePath = scriptTag.src.substring(0, scriptTag.src.lastIndexOf('/') + 1);
     }
 
-    // 1. Load diff_match_patch.js using the exact directory
+    // 1. Load diff_match_patch.js (independent library)
     const script1 = document.createElement('script');
     script1.src = basePath + 'diff_match_patch.js';
     script1.onload = () => {
         console.log("Local Diff Lib Loaded");
         
-        // 2. Load diffDOM.js AFTER the first one succeeds
+        // 2. THE NODE.JS EXPORTS FIX (Shim)
+        // Must run BEFORE diffDOM.js
+        const shim = document.createElement('script');
+        shim.textContent = "var exports = {}; var module = { exports: {} };";
+        document.head.appendChild(shim);
+        
+        // 3. Load diffDOM.js (structural library)
         const script2 = document.createElement('script');
         script2.src = basePath + 'diffDOM.js';
         script2.onload = () => console.log("Local DiffDOM Loaded");
