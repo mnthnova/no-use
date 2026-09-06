@@ -4,27 +4,28 @@ async function applyDiff(baseHTML, currentDoc) {
     const parser = new DOMParser();
     const baseDoc = parser.parseFromString(baseHTML, 'text/html');
 
-    // 1. Initialize DiffDOM with a preVirtualDiffApply hook
-    const dd = new DiffDOM({
+    // 1. Initialize DiffDOM with a corrected preVirtualDiffApply hook
+    const dd = new window.DiffDOM({
         valueDiffing: true,
-        diffcap: 1000,
         preVirtualDiffApply: (info) => {
-            // This runs BEFORE the DOM is changed!
+            // Only intervene if the action is modifying a text element
             if (info.diff.action === 'modifyTextElement') {
                 const parent = info.node && info.node.parentElement;
-                if (!parent) return true;
+                
+                // If there is no parent, let diffDOM handle it normally
+                if (!parent) return false; 
 
                 const oldText = info.diff.oldValue || '';
                 const newText = info.diff.newValue || '';
 
-                const dmp = new diff_match_patch();
+                const dmp = new window.diff_match_patch();
                 const textDiffs = dmp.diff_main(oldText, newText);
                 dmp.diff_cleanupSemantic(textDiffs);
 
-                // Rewrite the text with inline styles (no innerHTML, no CSS classes)
-                parent.innerHTML = ''; 
+                // Rewrite the text with inline styles
+                parent.innerHTML = '';
                 textDiffs.forEach(part => {
-                    const op = part[0]; 
+                    const op = part[0];
                     const text = part[1];
 
                     if (op === 0) {
@@ -42,16 +43,21 @@ async function applyDiff(baseHTML, currentDoc) {
                         parent.appendChild(span);
                     }
                 });
+
+                // IMPORTANT: Return true ONLY inside this block to tell diffDOM 
+                // "I manually handled this specific text change, skip your default text swap."
+                return true; 
             }
-            return true;
+            
+            // For all other structural changes (adding/removing rows, etc.), return false 
+            // to let diffDOM do its job natively.
+            return false;
         }
     });
 
-    // 2. Compute and Apply Diffs (The preVirtualDiffApply hook handles the highlighting)
-    const diffs = dd.diff(baseDoc, currentDoc);
+    // 2. Compute and Apply Diffs
+    const diffs = dd.diff(baseDoc.body, currentDoc.body);
     dd.apply(currentDoc.body, diffs);
-
-    // 3. Give a visual cue that it worked
-    console.log("Diff applied successfully.");
-    showToast('Visual Diff : ON', 'success');
+    
+    return 1;
 }
