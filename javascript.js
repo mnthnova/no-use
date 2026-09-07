@@ -43,3 +43,6 @@ function applyDiff(baseHTML, currentDoc) {
         el.style.setProperty('padding', '1px 2px', 'important');
     });
 }
+
+https://cdn.jsdelivr.net/npm/htmldiff-js@1.0.5/dist/htmldiff.min.js](https://cdn.jsdelivr.net/npm/htmldiff-js@1.0.5/dist/htmldiff.min.js
+
