@@ -15,7 +15,7 @@ function applyDiff(baseHTML, currentDoc) {
 
     const dmp = new window.diff_match_patch();
     
-    // CRITICAL: Prevent large tables from timing out and defaulting to a full block wipe
+    // CRITICAL: Stop DMP from giving up on complex tables and doing a full wipe
     dmp.Diff_Timeout = 0; 
 
     currentContent.setAttribute('data-original-html', currentContent.innerHTML);
@@ -30,25 +30,25 @@ function applyDiff(baseHTML, currentDoc) {
         return tokens;
     }
 
-    // This strips attributes just for matching, so Sphinx class changes (row-even/odd) 
-    // or Heading ID changes don't break the diff matching engine.
-    function getNormalizedTag(token) {
-        let match = token.match(/^<(\/?)([a-z0-9\-]+)/i);
+    let oldTokens = tokenize(baseContent.innerHTML);
+    let newTokens = tokenize(currentContent.innerHTML);
+
+    // NORMALIZER: Strips attributes temporarily ONLY for the matching engine.
+    // This forces DMP to see `<tr class="odd">` and `<tr class="even">` as identical structural matches.
+    function getBaseTag(token) {
+        let match = token.match(/^<\s*(\/?)\s*([a-zA-Z0-9\-]+)/);
         if (match) {
-            return `<${match[1]}${match[2].toLowerCase()}>`; // e.g., <tr class="foo"> becomes <tr>
+            return `<${match[1]}${match[2].toLowerCase()}>`;
         }
         return token;
     }
 
-    let oldTokens = tokenize(baseContent.innerHTML);
-    let newTokens = tokenize(currentContent.innerHTML);
-
     let tokenToChar = new Map();
-    let nextCharCode = 0x1000; // Start lower to allow for massive documents
+    let nextCharCode = 0x1000;
 
     let oldStr = '';
     for (let i = 0; i < oldTokens.length; i++) {
-        let norm = getNormalizedTag(oldTokens[i]);
+        let norm = getBaseTag(oldTokens[i]);
         if (!tokenToChar.has(norm)) {
             tokenToChar.set(norm, String.fromCharCode(nextCharCode++));
         }
@@ -57,7 +57,7 @@ function applyDiff(baseHTML, currentDoc) {
 
     let newStr = '';
     for (let i = 0; i < newTokens.length; i++) {
-        let norm = getNormalizedTag(newTokens[i]);
+        let norm = getBaseTag(newTokens[i]);
         if (!tokenToChar.has(norm)) {
             tokenToChar.set(norm, String.fromCharCode(nextCharCode++));
         }
@@ -66,23 +66,22 @@ function applyDiff(baseHTML, currentDoc) {
 
     let diffs = dmp.diff_main(oldStr, newStr);
 
-    // DO NOT enable this. It will shift diff boundaries across HTML tags and break tables.
-    // dmp.diff_cleanupSemantic(diffs);
-
     let finalHtml = '';
+    
+    // DUAL POINTERS: We track the exact index in your original token arrays.
     let oldIdx = 0;
     let newIdx = 0;
 
-    // Dual-array pointer reconstruction. 
-    // This mathematically guarantees we never duplicate tags or lose structure.
     for (let i = 0; i < diffs.length; i++) {
         let op = diffs[i][0];
         let chars = diffs[i][1];
 
+        // chars.length perfectly dictates how many tokens to advance in the arrays
         for (let j = 0; j < chars.length; j++) {
             
             if (op === 0) {
-                // UNCHANGED: Output the new token (keeps updated Sphinx classes/IDs)
+                // UNCHANGED: Output the new token to preserve Sphinx's updated attributes/IDs.
+                // This eliminates the duplicate heading issue completely.
                 finalHtml += newTokens[newIdx];
                 oldIdx++;
                 newIdx++;
@@ -92,9 +91,9 @@ function applyDiff(baseHTML, currentDoc) {
                 let token = newTokens[newIdx];
                 let isTag = /^<.*>$/.test(token);
                 let isWhitespace = /^\s+$/.test(token);
-
+                
                 if (isTag || isWhitespace) {
-                    finalHtml += token; // Never wrap HTML tags in <ins>
+                    finalHtml += token; // Structural tags pass through cleanly
                 } else {
                     finalHtml += `<ins style="background: #d4fcbc; color: #155724; text-decoration: none; border-radius: 2px; padding: 1px 2px;">${token}</ins>`;
                 }
@@ -108,15 +107,11 @@ function applyDiff(baseHTML, currentDoc) {
 
                 if (isTag) {
                     let tLow = token.toLowerCase();
-                    let safeTags = ['table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'colgroup', 'col', 'caption', 'ul', 'ol', 'li', 'div', 'dl', 'dt', 'dd', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
-                    let isSafe = safeTags.some(tag => new RegExp(`^</?${tag}([\\s>]|$)`, 'i').test(tLow));
-
-                    if (isSafe) {
-                        if (/^<(table|p|ul|ol|dl)([\s>]|$)/i.test(tLow)) {
-                            finalHtml += token.replace(/^<([a-z0-9\-]+)/i, '<$1 style="margin-bottom: 20px !important; opacity:0.75;" ');
-                        } else {
-                            finalHtml += token; // Preserve structural tags so table doesn't collapse
-                        }
+                    // If an entire table/list is deleted, render it with a red background
+                    if (/^<(table|ul|ol|dl)([\s>]|$)/i.test(tLow)) {
+                        finalHtml += token.replace(/^<([a-z0-9\-]+)/i, '<$1 style="background: #ffe6e6 !important; opacity:0.75;" ');
+                    } else {
+                        finalHtml += token; // Preserve deleted structural tags so the layout doesn't collapse
                     }
                 } else if (isWhitespace) {
                     finalHtml += token;
