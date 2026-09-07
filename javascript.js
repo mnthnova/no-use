@@ -15,7 +15,8 @@ function applyDiff(baseHTML, currentDoc) {
 
     const dmp = new window.diff_match_patch();
     
-    // Stop the engine from giving up on complex tables and doing a full wipe
+    // FIX 1: Tell the engine never to time out on massive tables.
+    // This stops it from defaulting to a full block delete/insert (which causes the duplicate headings).
     dmp.Diff_Timeout = 0; 
 
     currentContent.setAttribute('data-original-html', currentContent.innerHTML);
@@ -33,85 +34,98 @@ function applyDiff(baseHTML, currentDoc) {
     let oldTokens = tokenize(baseContent.innerHTML);
     let newTokens = tokenize(currentContent.innerHTML);
 
-    // NORMALIZER: Strips classes/IDs temporarily ONLY for the math engine.
-    // This forces it to see <tr class="odd"> and <tr class="even"> as the exact same structure.
-    function getMatchString(token) {
-        if (/^<.*>$/.test(token)) {
-            let match = token.match(/^<\s*(\/?)\s*([a-zA-Z0-9\-]+)/);
-            if (match) {
-                return `<${match[1]}${match[2].toLowerCase()}>`; // Returns pure <tr>, <h3>, etc.
-            }
-        }
-        return token; // Text and whitespace remain perfectly intact
-    }
-
     let tokenToChar = new Map();
+    let charToToken = new Map();
     let nextCharCode = 0xE000;
 
-    let oldStr = '';
-    for (let i = 0; i < oldTokens.length; i++) {
-        let norm = getMatchString(oldTokens[i]);
-        if (!tokenToChar.has(norm)) {
-            tokenToChar.set(norm, String.fromCharCode(nextCharCode++));
+    function tokenToString(tokens) {
+        let str = '';
+        for (let i = 0; i < tokens.length; i++) {
+            let token = tokens[i];
+            
+            // FIX 2: Create a normalized key for HTML tags.
+            // This forces the Diff engine to see <tr class="row-odd"> and <tr class="row-even"> 
+            // as the exact same character, preventing table rows from duplicating and breaking the DOM.
+            let mapKey = token;
+            if (token.startsWith('<') && token.endsWith('>')) {
+                let match = token.match(/^<\s*(\/?)\s*([a-zA-Z0-9\-]+)/);
+                if (match) {
+                    mapKey = `<${match[1]}${match[2].toLowerCase()}>`;
+                }
+            }
+
+            if (!tokenToChar.has(mapKey)) {
+                let char = String.fromCharCode(nextCharCode++);
+                tokenToChar.set(mapKey, char);
+                charToToken.set(char, token);
+            } else {
+                // FIX 3: Always update to the newest token. 
+                // This preserves Sphinx's updated classes/IDs without triggering a diff operation.
+                charToToken.set(tokenToChar.get(mapKey), token);
+            }
+            str += tokenToChar.get(mapKey);
         }
-        oldStr += tokenToChar.get(norm);
+        return str;
     }
 
-    let newStr = '';
-    for (let i = 0; i < newTokens.length; i++) {
-        let norm = getMatchString(newTokens[i]);
-        if (!tokenToChar.has(norm)) {
-            tokenToChar.set(norm, String.fromCharCode(nextCharCode++));
-        }
-        newStr += tokenToChar.get(norm);
-    }
+    let oldStr = tokenToString(oldTokens);
+    let newStr = tokenToString(newTokens);
 
     let diffs = dmp.diff_main(oldStr, newStr);
 
+    // FIX 4: Disable semantic cleanup. 
+    // This was actively shifting your diff boundaries across HTML tags and scrambling the table layout.
+    // dmp.diff_cleanupSemantic(diffs);
+
     let finalHtml = '';
-    let oldIdx = 0;
-    let newIdx = 0;
 
     for (let i = 0; i < diffs.length; i++) {
         let op = diffs[i][0];
         let chars = diffs[i][1];
 
         for (let j = 0; j < chars.length; j++) {
-            
-            if (op === 0) {
-                // EQUAL: Output the NEW token to inherit updated Sphinx classes/IDs quietly.
-                finalHtml += newTokens[newIdx];
-                oldIdx++;
-                newIdx++;
-                
-            } else if (op === 1) {
-                // INSERT
-                let token = newTokens[newIdx];
-                let isTag = /^<.*>$/.test(token);
-                let isWhitespace = /^\s+$/.test(token);
-                
-                if (isTag || isWhitespace) {
-                    // CRITICAL: Never wrap HTML tags in formatting. Pass them through untouched.
-                    finalHtml += token; 
-                } else {
-                    finalHtml += `<ins style="background: #d4fcbc; color: #155724; text-decoration: none; border-radius: 2px; padding: 1px 2px;">${token}</ins>`;
-                }
-                newIdx++;
-                
-            } else if (op === -1) {
-                // DELETE
-                let token = oldTokens[oldIdx];
-                let isTag = /^<.*>$/.test(token);
-                let isWhitespace = /^\s+$/.test(token);
+            let token = charToToken.get(chars[j]);
+            let isTag = token.startsWith('<') && token.endsWith('>');
+            let isWhitespace = /^\s+$/.test(token);
 
-                if (isTag || isWhitespace) {
-                    // CRITICAL: If a row is deleted, we MUST keep the <tr> and <td> tags intact 
-                    // so the table structure doesn't collapse. We only highlight the text inside it.
-                    finalHtml += token; 
-                } else {
-                    finalHtml += `<del style="background: #ffdcbb; color: #b31d28; text-decoration: line-through; border-radius: 2px; padding: 1px 2px;">${token}</del>`;
+            if (isTag) {
+                if (op === 0 || op === 1) {
+                    finalHtml += token;
+                } else if (op === -1) {
+                    let t = token.toLowerCase();
+                    // Added h1-h6 so deleted headings are treated as safe and don't collapse
+                    let safeTags = ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'ul', 'ol', 'li', 'div', 'dl', 'dt', 'dd', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+                    
+                    let isSafe = safeTags.some(tag => 
+                        t.startsWith('<' + tag + '>') || 
+                        t.startsWith('<' + tag + ' ') || 
+                        t.startsWith('</' + tag + '>')
+                    );
+
+                    if (isSafe) {
+                        if (t.match(/^<(table|p|ul|ol|dl)/)) {
+                            finalHtml += token.replace(/^<([a-zA-Z0-9]+)/, '<$1 style="margin-bottom: 20px !important; opacity:0.75;" ');
+                        } else {
+                            finalHtml += token;
+                        }
+                    }
                 }
-                oldIdx++;
+            } else {
+                if (op === 0) {
+                    finalHtml += token;
+                } else if (op === 1) {
+                    if (isWhitespace) {
+                        finalHtml += token;
+                    } else {
+                        finalHtml += `<ins style="background: #d4fcbc; color: #155724; text-decoration: none; border-radius: 2px; padding: 1px 2px;">${token}</ins>`;
+                    }
+                } else if (op === -1) {
+                    if (isWhitespace) {
+                        finalHtml += token;
+                    } else {
+                        finalHtml += `<del style="background: #ffdcbb; color: #b31d28; text-decoration: line-through; border-radius: 2px; padding: 1px 2px;">${token}</del>`;
+                    }
+                }
             }
         }
     }
