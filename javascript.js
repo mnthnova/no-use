@@ -1,14 +1,30 @@
+// 1. CLEAR HIGHLIGHTS (Safe Removal)
+function clearHighlights() {
+    // Replace our spans with their text content to restore the DOM exactly
+    document.querySelectorAll('.diff-span-add, .diff-span-del').forEach(el => {
+        el.parentNode.replaceChild(document.createTextNode(el.textContent), el);
+    });
+    // Reset any background colors
+    document.querySelectorAll('.diff-node-changed').forEach(el => {
+        el.classList.remove('diff-node-changed');
+        el.style.backgroundColor = '';
+    });
+}
+
+// 2. APPLY DIFF (Using ONLY diff_match_patch, NOT DiffDOM)
 async function applyDiff(baseHTML, currentDoc) {
     clearHighlights();
 
-    // 1. Parse the base HTML into a DOM tree
+    // Check if the library is loaded
+    if (typeof diff_match_patch === 'undefined') {
+        console.error("diff_match_patch not loaded");
+        return;
+    }
+
     const parser = new DOMParser();
     const baseDoc = parser.parseFromString(baseHTML, 'text/html');
-    
-    // 2. Create the DMP instance
-    const dmp = new diff_match_patch();
 
-    // 3. Walk both DOM trees and compare ALL text nodes
+    // Walk both DOM trees and find text differences
     function walkAndDiff(baseNode, currNode) {
         if (!baseNode || !currNode) return;
 
@@ -20,10 +36,14 @@ async function applyDiff(baseHTML, currentDoc) {
                 const oldText = baseNode.textContent;
                 const newText = currNode.textContent;
 
+                const dmp = new diff_match_patch();
                 const textDiffs = dmp.diff_main(oldText, newText);
                 dmp.diff_cleanupSemantic(textDiffs);
 
-                parent.innerHTML = ''; 
+                // SAFELY CLEAR AND REBUILD
+                // Use replaceChildren() to avoid wiping the whole parent HTML
+                parent.replaceChildren(); 
+
                 textDiffs.forEach(part => {
                     const op = part[0]; 
                     const text = part[1];
@@ -32,13 +52,12 @@ async function applyDiff(baseHTML, currentDoc) {
                         parent.appendChild(document.createTextNode(text));
                     } else if (op === 1) {
                         const span = document.createElement('span');
-                        span.style.backgroundColor = '#a5f3a5'; // Green
+                        span.className = 'diff-span-add'; // Green
                         span.textContent = text;
                         parent.appendChild(span);
                     } else if (op === -1) {
                         const span = document.createElement('span');
-                        span.style.backgroundColor = '#f3a5a5'; // Red
-                        span.style.textDecoration = 'line-through';
+                        span.className = 'diff-span-del'; // Red
                         span.textContent = text;
                         parent.appendChild(span);
                     }
@@ -46,7 +65,7 @@ async function applyDiff(baseHTML, currentDoc) {
             }
         }
 
-        // Recurse into children
+        // Recurse into children safely
         if (baseNode.childNodes && currNode.childNodes) {
             const len = Math.min(baseNode.childNodes.length, currNode.childNodes.length);
             for (let i = 0; i < len; i++) {
@@ -55,8 +74,24 @@ async function applyDiff(baseHTML, currentDoc) {
         }
     }
 
-    // 4. Run the walker on the document body
     walkAndDiff(baseDoc.body, currentDoc.body);
 
     showToast('Visual Diff : ON', 'success');
+}
+
+
+.diff-span-add {
+    background-color: #a5f3a5; /* Green */
+    color: #155724;
+    text-decoration: none;
+    border-radius: 2px;
+    padding: 0 2px;
+}
+
+.diff-span-del {
+    background-color: #f3a5a5; /* Red */
+    color: #721c24;
+    text-decoration: line-through;
+    border-radius: 2px;
+    padding: 0 2px;
 }
