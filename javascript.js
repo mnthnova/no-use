@@ -1,80 +1,130 @@
 async function applyDiff(baseHTML, currentDoc) {
     clearHighlights();
 
-    let liveContent = getContentArea(currentDoc);
-    if (!liveContent) return;
-
-    liveContent.setAttribute('data-original-html', liveContent.innerHTML);
-
-    function sanitizeSphinx(html) {
-        return html
-            .replace(/\s+id="id\d+"/gi, '') 
-            .replace(/\s+class="[^"]*(?:row-odd|row-even)[^"]*"/gi, '');
-    }
-
     let parser = new DOMParser();
     let baseDoc = parser.parseFromString(baseHTML, 'text/html');
     let baseContent = getContentArea(baseDoc);
+    let currentContent = getContentArea(currentDoc);
 
-    if (!baseContent) return;
+    if (!baseContent || !currentContent) return;
 
-    // THE FIX: Wrap both contents in identical dummy <div> tags.
-    // This guarantees DiffDOM never complains about mismatched top-level node types.
-    let oldContainer = document.createElement('div');
-    oldContainer.innerHTML = sanitizeSphinx(baseContent.innerHTML);
+    const dmp = new window.diff_match_patch();
+    currentContent.setAttribute('data-original-html', currentContent.innerHTML);
 
-    let newContainer = document.createElement('div');
-    newContainer.innerHTML = sanitizeSphinx(liveContent.innerHTML);
-
-    const dd = new window.DiffDOM({
-        valueDiffing: true,
-        preVirtualDiffApply: function(info) {
-            if (info.diff.action === 'modifyTextElement') {
-                const textNode = info.node;
-                const parent = textNode.parentNode;
-                if (!parent) return false;
-
-                const oldText = info.diff.oldValue || '';
-                const newText = info.diff.newValue || '';
-
-                const dmp = new window.diff_match_patch();
-                const textDiffs = dmp.diff_main(oldText, newText);
-                dmp.diff_cleanupSemantic(textDiffs);
-
-                const fragment = document.createDocumentFragment();
-                textDiffs.forEach(part => {
-                    const op = part[0];
-                    const text = part[1];
-
-                    if (op === 0) {
-                        fragment.appendChild(document.createTextNode(text));
-                    } else if (op === 1) {
-                        const ins = document.createElement('ins');
-                        ins.style.cssText = 'background: #d4fcbc; color: #155724; text-decoration: none; border-radius: 2px; padding: 1px 2px;';
-                        ins.textContent = text;
-                        fragment.appendChild(ins);
-                    } else if (op === -1) {
-                        const del = document.createElement('del');
-                        del.style.cssText = 'background: #ffdce0; color: #b31d28; text-decoration: line-through; border-radius: 2px; padding: 1px 2px;';
-                        del.textContent = text;
-                        fragment.appendChild(del);
-                    }
-                });
-
-                parent.replaceChild(fragment, textNode);
-                return true; 
-            }
-            return false; 
+    // 1. TOKENIZE THE HTML
+    function tokenize(html) {
+        let tokens = [];
+        let regex = /(<[^>]+>)|([^<>\s]+)|(\s+)/g;
+        let match;
+        while ((match = regex.exec(html)) !== null) {
+            tokens.push(match[0]);
         }
-    });
+        return tokens;
+    }
 
-    // Diff the two identical containers
-    const diffs = dd.diff(oldContainer, newContainer);
-    dd.apply(oldContainer, diffs);
+    let oldTokens = tokenize(baseContent.innerHTML);
+    let newTokens = tokenize(currentContent.innerHTML);
 
-    // Extract the newly highlighted inner HTML and put it on the screen
-    liveContent.innerHTML = oldContainer.innerHTML;
+    // 2. NORMALIZE TOKENS (The Breakthrough)
+    // We strip attributes from structural tags so Sphinx class/ID changes don't trick 
+    // the diff engine into duplicating tags and breaking tables.
+    function getNormalizedToken(token) {
+        if (token.startsWith('<') && token.endsWith('>')) {
+            let match = token.match(/^<\/?([a-zA-Z0-9]+)/);
+            if (match) {
+                let tag = match[1].toLowerCase();
+                let structuralTags = ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'ul', 'ol', 'li', 'div', 'dl', 'dt', 'dd', 'caption', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+                if (structuralTags.includes(tag)) {
+                    return match[0].toLowerCase() + '>'; // e.g., turns <tr class="odd"> into <tr>
+                }
+            }
+        }
+        // Remove Sphinx auto-numbers so they aren't diffed
+        return token.replace(/^((?:Section\s+|Table\s+)?[\d\.]+\s+)/i, '');
+    }
 
+    let normToChar = new Map();
+    let nextCharCode = 0xE000;
+
+    function getCharForToken(token) {
+        let norm = getNormalizedToken(token);
+        if (!normToChar.has(norm)) {
+            normToChar.set(norm, String.fromCharCode(nextCharCode++));
+        }
+        return normToChar.get(norm);
+    }
+
+    let oldStr = oldTokens.map(getCharForToken).join('');
+    let newStr = newTokens.map(getCharForToken).join('');
+
+    // 3. COMPUTE WORD-BY-WORD DIFF
+    let diffs = dmp.diff_main(oldStr, newStr);
+    dmp.diff_cleanupSemantic(diffs);
+
+    // 4. ASSEMBLY LOOP WITH DUAL POINTERS
+    // We walk through the exact changes, using the pointers to grab the REAL HTML 
+    // (with correct attributes) so the layout stays flawless.
+    let finalHtml = '';
+    let oldIndex = 0;
+    let newIndex = 0;
+    const autoNumRegex = /^((?:Section\s+|Table\s+)?[\d\.]+\s+)/i;
+
+    for (let i = 0; i < diffs.length; i++) {
+        let op = diffs[i][0];
+        let chars = diffs[i][1];
+
+        for (let j = 0; j < chars.length; j++) {
+            if (op === 0) {
+                // Unchanged: Pull the NEW token so Sphinx classes update silently
+                finalHtml += newTokens[newIndex];
+                oldIndex++;
+                newIndex++;
+            } else if (op === 1) {
+                // Inserted
+                let token = newTokens[newIndex];
+                let isTag = token.startsWith('<') && token.endsWith('>');
+                let isWhitespace = /^\s+$/.test(token);
+                let isAutoNum = autoNumRegex.test(token);
+
+                if (isTag || isWhitespace || isAutoNum) {
+                    finalHtml += token; // Render new tags/spaces normally
+                } else {
+                    finalHtml += `<ins style="background: #d4fcbc; color: #155724; text-decoration: none; border-radius: 2px; padding: 1px 2px;">${token}</ins>`;
+                }
+                newIndex++;
+            } else if (op === -1) {
+                // Deleted
+                let token = oldTokens[oldIndex];
+                let isTag = token.startsWith('<') && token.endsWith('>');
+                let isWhitespace = /^\s+$/.test(token);
+                let isAutoNum = autoNumRegex.test(token);
+
+                if (isTag) {
+                    let match = token.match(/^<\/?([a-zA-Z0-9]+)/);
+                    let baseTag = match ? match[1].toLowerCase() : '';
+                    let safeTags = ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'ul', 'ol', 'li', 'div', 'dl', 'dt', 'dd', 'caption'];
+                    
+                    if (safeTags.includes(baseTag)) {
+                        // Render deleted structural tags safely so the layout grid doesn't collapse
+                        if (token.toLowerCase().startsWith('<table') || token.toLowerCase().startsWith('<ul') || token.toLowerCase().startsWith('<ol') || token.toLowerCase().startsWith('<dl')) {
+                            finalHtml += token.replace(/^<([a-zA-Z0-9]+)/, '<$1 style="margin-bottom: 20px !important; opacity: 0.5"');
+                        } else {
+                            finalHtml += token; 
+                        }
+                    } else {
+                        finalHtml += token; // Keep deleted non-structural tags (like <b>) wrapped
+                    }
+                } else if (isWhitespace || isAutoNum) {
+                    // Do nothing for deleted whitespace/auto-numbers
+                } else {
+                    finalHtml += `<del style="background: #ffdce0; color: #b31d28; text-decoration: line-through; border-radius: 2px; padding: 1px 2px;">${token}</del>`;
+                }
+                oldIndex++;
+            }
+        }
+    }
+
+    currentContent.innerHTML = finalHtml;
     console.log("Visual Diff applied successfully.");
     return 1;
 }
