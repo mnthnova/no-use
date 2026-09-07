@@ -1,84 +1,83 @@
 function clearHighlights() {
-    let current = document.querySelector('.rst-content');
-    if (current && current.hasAttribute('data-original-html')) {
-        current.innerHTML = current.getAttribute('data-original-html');
-        current.removeAttribute('data-original-html');
-    }
-    // Clear old styles just in case
-    document.querySelectorAll('.rst-content *').forEach(el => {
-        if (el.style.backgroundColor) el.style.backgroundColor = '';
-        if (el.style.textDecoration) el.style.textDecoration = '';
+    const spans = document.querySelectorAll('.diff-add, .diff-del');
+    spans.forEach(span => {
+        const parent = span.parentNode;
+        // Replace the span with its text content
+        parent.replaceChild(document.createTextNode(span.textContent), span);
+        parent.normalize(); // Merge adjacent text nodes
     });
 }
 
-// 2. APPLY DIFF (String-to-String, Skips Side Menu)
+// 2. APPLY DIFF (Pure text node matching, NO innerHTML, NO massive rebuilding)
 async function applyDiff(baseHTML, currentDoc) {
     clearHighlights();
-    if (typeof diff_match_patch === 'undefined') return;
 
-    // 1. Save original HTML to restore later
-    let mainContent = document.querySelector('.rst-content');
-    if (!mainContent) mainContent = currentDoc.body; // Fallback
-    mainContent.setAttribute('data-original-html', mainContent.innerHTML);
+    if (typeof diff_match_patch === 'undefined') {
+        console.error("diff_match_patch not found");
+        return;
+    }
 
-    // 2. Parse only the main content area
     const parser = new DOMParser();
     const baseDoc = parser.parseFromString(baseHTML, 'text/html');
-    let baseContent = baseDoc.querySelector('.rst-content');
-    
-    // If main area not found in base, use body (but skip sidebar)
-    if (!baseContent) baseContent = baseDoc.body;
 
-    // 3. Define the walker to ONLY hit text nodes, check for huge changes
+    // ONLY look inside the main content area to avoid touching the sidebar
+    const baseContent = baseDoc.querySelector('.rst-content') || baseDoc.body;
+    const currentContent = currentDoc.querySelector('.rst-content') || currentDoc.body;
+
+    const dmp = new diff_match_patch();
+
+    // Recursive walker that ONLY changes text nodes
     function walkAndDiff(baseNode, currNode) {
         if (!baseNode || !currNode) return;
 
-        // Text nodes only!
+        // If both are text nodes and they differ
         if (baseNode.nodeType === 3 && currNode.nodeType === 3) {
-            // Do not process if text is exactly the same or if text is huge (which likely means we are in a hidden container)
-            if (baseNode.textContent !== currNode.textContent && baseNode.textContent.length < 1000) {
-                
+            if (baseNode.textContent !== currNode.textContent) {
                 const parent = currNode.parentElement;
-                // Safety: do NOT touch massive parent containers
-                if (parent.tagName === 'BODY' || parent.tagName === 'HTML') return;
+                
+                // SAFETY: Do not touch massive parent containers or header/footer
+                if (!parent || parent.tagName === 'BODY' || parent.tagName === 'HTML') return;
 
                 const oldText = baseNode.textContent;
                 const newText = currNode.textContent;
 
-                const dmp = new diff_match_patch();
                 const textDiffs = dmp.diff_main(oldText, newText);
                 dmp.diff_cleanupSemantic(textDiffs);
 
-                // Safe rebuild (innerHTML only on small leaf nodes like <p>, <td>, <li>)
-                parent.innerHTML = ''; 
+                // Build a fragment to hold the new spans
+                const fragment = document.createDocumentFragment();
 
                 textDiffs.forEach(part => {
                     const op = part[0]; 
                     const text = part[1];
 
                     if (op === 0) {
-                        parent.appendChild(document.createTextNode(text));
+                        fragment.appendChild(document.createTextNode(text));
                     } else if (op === 1) {
                         const span = document.createElement('span');
-                        // INLINE STYLE, NO CSS FILE NEEDED
-                        span.style.backgroundColor = '#a5f3a5'; 
+                        span.className = 'diff-add';
+                        span.style.backgroundColor = '#a5f3a5'; // Green - Inline CSS
                         span.style.color = '#155724';
                         span.textContent = text;
-                        parent.appendChild(span);
+                        fragment.appendChild(span);
                     } else if (op === -1) {
                         const span = document.createElement('span');
-                        // INLINE STYLE, NO CSS FILE NEEDED
-                        span.style.backgroundColor = '#f3a5a5'; 
+                        span.className = 'diff-del';
+                        span.style.backgroundColor = '#f3a5a5'; // Red - Inline CSS
                         span.style.color = '#721c24';
                         span.style.textDecoration = 'line-through';
                         span.textContent = text;
-                        parent.appendChild(span);
+                        fragment.appendChild(span);
                     }
                 });
+
+                // Replace the current text node with the fragment
+                parent.replaceChild(fragment, currNode);
             }
+            return;
         }
 
-        // Recurse
+        // Recurse into children
         if (baseNode.childNodes && currNode.childNodes) {
             const len = Math.min(baseNode.childNodes.length, currNode.childNodes.length);
             for (let i = 0; i < len; i++) {
@@ -87,6 +86,6 @@ async function applyDiff(baseHTML, currentDoc) {
         }
     }
 
-    walkAndDiff(baseContent, mainContent);
+    walkAndDiff(baseContent, currentContent);
     showToast('Visual Diff : ON', 'success');
 }
