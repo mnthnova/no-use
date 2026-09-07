@@ -1,63 +1,117 @@
-function clearHighlights() {
-    let target = document.querySelector('.rst-content') || document.body;
-    if (target.hasAttribute('data-original-html')) {
-        // Restore the exact original HTML to fix any broken tables
-        target.innerHTML = target.getAttribute('data-original-html');
-        target.removeAttribute('data-original-html');
+// Apply Visual Diff By Comparing Text Nodes
+function applyDiff(baseHTML, currentDoc) {
+    clearHighlights();
+
+    let parser = new DOMParser();
+    let baseDoc = parser.parseFromString(baseHTML, 'text/html');
+
+    let baseContent = getContentArea(baseDoc);
+    let currentContent = getContentArea(currentDoc);
+
+    if (!baseContent || !currentContent) {
+        console.log('Could Not Find Content Area');
+        return;
     }
-    // Clean up any residual styles
-    document.querySelectorAll('.diff-add, .diff-del').forEach(el => {
-        el.style.backgroundColor = '';
-        el.style.textDecoration = '';
-    });
-}
 
-async function applyDiff(baseHTML, currentDoc) {
-    // Save original HTML so we can restore it perfectly
-    let mainContent = currentDoc.querySelector('.rst-content') || currentDoc.body;
-    mainContent.setAttribute('data-original-html', mainContent.innerHTML);
+    const dmp = new window.diff_match_patch();
 
-    // Reuse your ORIGINAL diff_match_patch tokenization logic here!
-    // (Example of your original logic...)
-    let oldTokens = tokenize(baseHTML);
-    let newTokens = tokenize(mainContent.innerHTML);
-    
-    let diffs = dmp.diff_main(oldTokens, newTokens);
-    dmp.diff_cleanupSemantic(diffs);
+    currentContent.setAttribute('data-original-html', currentContent.innerHTML);
 
-    // THE CRITICAL FIX FOR TABLES:
-    // Instead of doing a string replace and shoving it into innerHTML (which breaks tables),
-    // we rebuild the HTML string SAFELY.
+    function tokenize(html) {
+        let tokens = [];
+        let regex = /(<[^>]+>)|([^<>\s]+)|(\s+)/g;
+        let match;
+        while ((match = regex.exec(html)) !== null) {
+            tokens.push(match[0]);
+        }
+        return tokens;
+    }
+
+    let oldTokens = tokenize(baseContent.innerHTML);
+    let newTokens = tokenize(currentContent.innerHTML);
+
+    let tokenToChar = new Map();
+    let charToToken = new Map();
+    let nextCharCode = 0xE000;
+
+    function tokenToString(tokens) {
+        let str = '';
+        for (let i = 0; i < tokens.length; i++) {
+            let token = tokens[i];
+            if (!tokenToChar.has(token)) {
+                let char = String.fromCharCode(nextCharCode++);
+                tokenToChar.set(token, char);
+                charToToken.set(char, token);
+            }
+            str += tokenToChar.get(token);
+        }
+        return str;
+    }
+
+    let oldStr = tokenToString(oldTokens);
+    let newStr = tokenToString(newTokens);
+
+    let diffs = dmp.diff_main(oldStr, newStr);
+
+    // 🛑 CRITICAL FIX 1: Do NOT run diff_cleanupSemantic. 
+    // Commenting this out prevents the table breaking and the duplicate header issue.
+    // dmp.diff_cleanupSemantic(diffs);
+
     let finalHtml = '';
-    
-    diffs.forEach(part => {
-        const op = part[0]; 
-        const text = part[1];
 
-        if (op === 0) {
-            finalHtml += text;
-        } else if (op === 1) {
-            // Added text (Green)
-            finalHtml += `<span class="diff-add" style="background-color:#a5f3a5; color:#155724;">${text}</span>`;
-        } else if (op === -1) {
-            // Removed text (Red)
-            finalHtml += `<span class="diff-del" style="background-color:#f3a5a5; color:#721c24; text-decoration: line-through;">${text}</span>`;
+    for (let i = 0; i < diffs.length; i++) {
+        let op = diffs[i][0];
+        let chars = diffs[i][1];
+
+        for (let j = 0; j < chars.length; j++) {
+            let token = charToToken.get(chars[j]);
+            
+            // Safer check for HTML tags
+            let isTag = /^<.*>$/.test(token);
+            let isWhitespace = /^\s+$/.test(token);
+
+            if (isTag) {
+                let t = token.toLowerCase();
+                let safeTags = ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'ul', 'ol', 'li', 'div', 'dl', 'dt', 'dd', 'p'];
+                
+                // 🛑 CRITICAL FIX 2: Use regex for `isSafe` to catch tags with attributes/newlines
+                let isSafe = safeTags.some(tag => {
+                    let regex = new RegExp(`^</?${tag}([\\s>]|$)`, 'i');
+                    return regex.test(t);
+                });
+
+                if (op === 0 || op === 1) {
+                    finalHtml += token;
+                } else if (op === -1) {
+                    if (isSafe) {
+                        // 🛑 CRITICAL FIX 3: Robust matching for applying styles to deleted blocks
+                        if (/^<(table|p|ul|ol|dl)([\s>]|$)/i.test(t)) {
+                            finalHtml += token.replace(/^<([a-z0-9]+)/i, '<$1 style="margin-bottom: 20px !important; opacity:0.75;" ');
+                        } else {
+                            finalHtml += token;
+                        }
+                    }
+                }
+            } else {
+                if (op === 0) {
+                    finalHtml += token;
+                } else if (op === 1) {
+                    if (isWhitespace) {
+                        finalHtml += token;
+                    } else {
+                        finalHtml += `<ins style="background: #d4fcbc; color: #155724; text-decoration: none; border-radius: 2px; padding: 1px 2px;">${token}</ins>`;
+                    }
+                } else if (op === -1) {
+                    if (isWhitespace) {
+                        finalHtml += token;
+                    } else {
+                        finalHtml += `<del style="background: #ffdcbb; color: #b31d28; text-decoration: line-through; border-radius: 2px; padding: 1px 2px;">${token}</del>`;
+                    }
+                }
+            }
         }
-    });
+    }
 
-    // Apply the final HTML to the main content only.
-    // This inherently ignores the sidebars, so no double headings.
-    mainContent.innerHTML = finalHtml;
-    
-    // POST-PROCESSING FIX FOR TABLES:
-    // This moves text that escaped the table back inside if the browser broke it.
-    mainContent.querySelectorAll('table').forEach(table => {
-        let previousNode = table.previousElementSibling;
-        // If raw text fell below the table, move it up to where the table started
-        if (previousNode && previousNode.nodeType === 3) {
-             table.parentNode.insertBefore(previousNode, table);
-        }
-    });
-
-    showToast('Visual Diff : ON', 'success');
+    currentContent.innerHTML = finalHtml;
+    return 1;
 }
