@@ -48,25 +48,35 @@ https://cdn.jsdelivr.net/npm/htmldiff-js@1.0.5/dist/htmldiff.min.js](https://cdn
 
 
 
-// PRODUCTION FIX: "The Word-Locking Trick" 
-// Forces the diff engine to treat table rows as solid blocks
+// PRODUCTION FIX: "The Word-Locking Trick" (With True Hashing)
 function lockTableWords(contentBlock) {
+    // Math function that scrambles a string into a unique short ID
+    function getHash(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = ((hash << 5) - hash) + str.charCodeAt(i);
+            hash |= 0; // Convert to 32bit integer
+        }
+        return Math.abs(hash).toString(36); // Returns a short alphanumeric string
+    }
+
     contentBlock.querySelectorAll('tr').forEach(tr => {
-        // 1. Create a unique fingerprint based on the row's text
+        // 1. Get the row text, strip spaces, and generate a TRUE unique hash
         let rowText = tr.innerText || tr.textContent || '';
-        let fingerprint = btoa(encodeURIComponent(rowText)).replace(/[^a-zA-Z0-9]/g, '').substring(0, 15);
+        let fingerprint = getHash(rowText.replace(/\s+/g, ''));
         
         // 2. Find every text piece inside this row
         let walker = document.createTreeWalker(tr, NodeFilter.SHOW_TEXT, null, false);
         let node;
         while ((node = walker.nextNode())) {
-            // 3. Attach the secret fingerprint to EVERY word
+            // 3. Attach the unique hash to EVERY word
             if (node.nodeValue.trim() !== '') {
                 node.nodeValue = node.nodeValue.replace(/([^\s]+)/g, `$1___${fingerprint}___`);
             }
         }
     });
 }
+
 
     // ... your existing setup code above ...
     currentContent.setAttribute('data-original-html', currentContent.innerHTML);
