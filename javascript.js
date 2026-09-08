@@ -96,6 +96,56 @@ function lockTableWords(contentBlock) {
 
 
 
+// PRODUCTION FIX: "The Cell-Density Bypass"
+function lockTableWords(contentBlock) {
+    function getHash(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = ((hash << 5) - hash) + str.charCodeAt(i);
+            hash |= 0;
+        }
+        return Math.abs(hash).toString(36);
+    }
+
+    contentBlock.querySelectorAll('tr').forEach(tr => {
+        // 1. Look at every cell in the row individually
+        let cells = tr.querySelectorAll('th, td');
+        let isDataGrid = true;
+
+        cells.forEach(cell => {
+            // Get the clean word count for this specific cell
+            let cellWords = (cell.innerText || cell.textContent || '').trim().split(/\s+/).filter(w => w.length > 0);
+            
+            // --- THE BULLETPROOF LOGIC ---
+            // "Subsystem Device ID (SSID)" is 4 words. 
+            // "Please refer the table 8/9..." is 5+ words.
+            // If ANY cell has 5 or more words, it contains a sentence. Do not lock it!
+            if (cellWords.length > 4) {
+                isDataGrid = false;
+            }
+        });
+        
+        // 2. Bypass mixed tables and paragraphs for perfect word-level diffing
+        if (!isDataGrid) {
+            return; 
+        }
+        
+        // 3. Only lock pure Data Grids (where every cell is short) to prevent diagonal sliding
+        let rowText = tr.innerText || tr.textContent || '';
+        let fingerprint = getHash(rowText.replace(/\s+/g, ''));
+        let walker = document.createTreeWalker(tr, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        
+        while ((node = walker.nextNode())) {
+            if (node.nodeValue.trim() !== '') {
+                node.nodeValue = node.nodeValue.replace(/([^\s]+)/g, `$1_DIFFLOCK_${fingerprint}_DIFFLOCK_`);
+            }
+        }
+    });
+}
+
+
+
 
 
 
