@@ -97,7 +97,9 @@ function lockTableWords(contentBlock) {
 
     // ... your existing CSS color styling below ...
 
-// PRODUCTION FIX: "The Smart Lock" (Hybrid Approach)
+
+
+
 function lockTableWords(contentBlock) {
     function getHash(str) {
         let hash = 0;
@@ -111,30 +113,36 @@ function lockTableWords(contentBlock) {
     contentBlock.querySelectorAll('tr').forEach(tr => {
         let rowText = tr.innerText || tr.textContent || '';
         
-        // --- THE SMART BYPASS ---
-        // Count how many words are in this specific row
-        let wordCount = rowText.trim().split(/\s+/).length;
+        // 1. Count the exact number of words
+        let words = rowText.trim().split(/\s+/).filter(w => w.length > 0);
+        let wordCount = words.length;
         
-        // If the row has more than 12 words (e.g., Revision History sentences),
-        // instantly skip it. This preserves perfect single-word highlighting for text blocks.
-        if (wordCount > 12) {
+        // 2. Count the exact number of cells in this specific row
+        let cells = tr.querySelectorAll('th, td');
+        let cellCount = cells.length || 1; // Fallback to 1 to prevent dividing by zero
+        
+        // --- THE UNIVERSAL METRIC ---
+        // Calculate the average density of the cells
+        let avgWordsPerCell = wordCount / cellCount;
+        
+        // If cells contain an average of more than 4 words, it is prose/sentences.
+        // Skip it so htmldiff can highlight single-word changes beautifully.
+        if (avgWordsPerCell > 4) {
             return; 
         }
         
-        // If it has 12 words or fewer (e.g., Capacity & SSID Data Tables),
-        // apply the lock to prevent the diagonal sliding bug.
+        // If cells are sparse (like 1-3 words each), it is a Data Grid.
+        // Apply the lock to mathematically prevent the diagonal sliding bug.
         let fingerprint = getHash(rowText.replace(/\s+/g, ''));
         let walker = document.createTreeWalker(tr, NodeFilter.SHOW_TEXT, null, false);
         let node;
         while ((node = walker.nextNode())) {
             if (node.nodeValue.trim() !== '') {
-                // Using the safe _DIFFLOCK_ delimiter
                 node.nodeValue = node.nodeValue.replace(/([^\s]+)/g, `$1_DIFFLOCK_${fingerprint}_DIFFLOCK_`);
             }
         }
     });
 }
-
 
 
     
