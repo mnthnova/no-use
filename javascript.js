@@ -100,6 +100,7 @@ function lockTableWords(contentBlock) {
 
 
 
+// PRODUCTION FIX: "Table-Level Density Lock"
 function lockTableWords(contentBlock) {
     function getHash(str) {
         let hash = 0;
@@ -110,39 +111,44 @@ function lockTableWords(contentBlock) {
         return Math.abs(hash).toString(36);
     }
 
-    contentBlock.querySelectorAll('tr').forEach(tr => {
-        let rowText = tr.innerText || tr.textContent || '';
+    // Evaluate each TABLE as one complete unit, not row-by-row
+    contentBlock.querySelectorAll('table').forEach(table => {
+        let tbody = table.querySelector('tbody');
+        if (!tbody) return;
+
+        // 1. Count all words in the entire table body
+        let words = tbody.innerText.trim().split(/\s+/).filter(w => w.length > 0);
         
-        // 1. Count the exact number of words
-        let words = rowText.trim().split(/\s+/).filter(w => w.length > 0);
+        // 2. Count all data cells in the entire table body
+        let cells = tbody.querySelectorAll('td');
+        
         let wordCount = words.length;
+        let cellCount = cells.length || 1; 
         
-        // 2. Count the exact number of cells in this specific row
-        let cells = tr.querySelectorAll('th, td');
-        let cellCount = cells.length || 1; // Fallback to 1 to prevent dividing by zero
+        // --- THE TABLE-WIDE METRIC ---
+        // Calculate the average density of the entire table
+        let tableAvgDensity = wordCount / cellCount;
         
-        // --- THE UNIVERSAL METRIC ---
-        // Calculate the average density of the cells
-        let avgWordsPerCell = wordCount / cellCount;
-        
-        // If cells contain an average of more than 4 words, it is prose/sentences.
-        // Skip it so htmldiff can highlight single-word changes beautifully.
-        if (avgWordsPerCell > 4) {
+        // If the table as a whole averages more than 3 words per cell, 
+        // it is a Prose/Revision table. Skip the ENTIRE table immediately.
+        if (tableAvgDensity > 3) {
             return; 
         }
         
-        // If cells are sparse (like 1-3 words each), it is a Data Grid.
-        // Apply the lock to mathematically prevent the diagonal sliding bug.
-        let fingerprint = getHash(rowText.replace(/\s+/g, ''));
-        let walker = document.createTreeWalker(tr, NodeFilter.SHOW_TEXT, null, false);
-        let node;
-        while ((node = walker.nextNode())) {
-            if (node.nodeValue.trim() !== '') {
-                node.nodeValue = node.nodeValue.replace(/([^\s]+)/g, `$1_DIFFLOCK_${fingerprint}_DIFFLOCK_`);
+        // Otherwise, the table is a strict Data Grid. Lock ALL of its rows.
+        tbody.querySelectorAll('tr').forEach(tr => {
+            let rowText = tr.innerText || tr.textContent || '';
+            let fingerprint = getHash(rowText.replace(/\s+/g, ''));
+            
+            let walker = document.createTreeWalker(tr, NodeFilter.SHOW_TEXT, null, false);
+            let node;
+            while ((node = walker.nextNode())) {
+                if (node.nodeValue.trim() !== '') {
+                    node.nodeValue = node.nodeValue.replace(/([^\s]+)/g, `$1_DIFFLOCK_${fingerprint}_DIFFLOCK_`);
+                }
             }
-        }
+        });
     });
 }
-
 
     
