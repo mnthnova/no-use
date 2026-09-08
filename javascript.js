@@ -46,61 +46,7 @@ function applyDiff(baseHTML, currentDoc) {
 
 https://cdn.jsdelivr.net/npm/htmldiff-js@1.0.5/dist/htmldiff.min.js](https://cdn.jsdelivr.net/npm/htmldiff-js@1.0.5/dist/htmldiff.min.js
 
-
-
-// PRODUCTION FIX: "The Word-Locking Trick" (With True Hashing)
-function lockTableWords(contentBlock) {
-    // Math function that scrambles a string into a unique short ID
-    function getHash(str) {
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-            hash = ((hash << 5) - hash) + str.charCodeAt(i);
-            hash |= 0; // Convert to 32bit integer
-        }
-        return Math.abs(hash).toString(36); // Returns a short alphanumeric string
-    }
-
-    contentBlock.querySelectorAll('tr').forEach(tr => {
-        // 1. Get the row text, strip spaces, and generate a TRUE unique hash
-        let rowText = tr.innerText || tr.textContent || '';
-        let fingerprint = getHash(rowText.replace(/\s+/g, ''));
-        
-        // 2. Find every text piece inside this row
-        let walker = document.createTreeWalker(tr, NodeFilter.SHOW_TEXT, null, false);
-        let node;
-        while ((node = walker.nextNode())) {
-            // 3. Attach the unique hash to EVERY word
-            if (node.nodeValue.trim() !== '') {
-                node.nodeValue = node.nodeValue.replace(/([^\s]+)/g, `$1___${fingerprint}___`);
-            }
-        }
-    });
-}
-
-
-    // ... your existing setup code above ...
-    currentContent.setAttribute('data-original-html', currentContent.innerHTML);
-
-    // --- 1. LOCK WORDS TO THEIR ROWS ---
-    lockTableWords(baseContent);
-    lockTableWords(currentContent);
-
-    // --- 2. RUN ENGINE ---
-    let rawDiffHTML = HtmlDiff.default.execute(baseContent.innerHTML, currentContent.innerHTML);
-
-    // --- 3. CLEANUP (REMOVE SECRET LABELS) ---
-    // This strips out the ___fingerprint___ from the final HTML string before the user ever sees it
-    let cleanDiffHTML = rawDiffHTML.replace(/___[a-zA-Z0-9]*___/g, '');
-    
-    // Safely inject the perfectly merged and cleaned HTML back into the DOM
-    currentContent.innerHTML = cleanDiffHTML;
-
-    // ... your existing CSS color styling below ...
-
-
-
-
-// PRODUCTION FIX: "Table-Level Density Lock"
+// PRODUCTION FIX: "The Smart Lock" (Hybrid Approach)
 function lockTableWords(contentBlock) {
     function getHash(str) {
         let hash = 0;
@@ -111,44 +57,48 @@ function lockTableWords(contentBlock) {
         return Math.abs(hash).toString(36);
     }
 
-    // Evaluate each TABLE as one complete unit, not row-by-row
-    contentBlock.querySelectorAll('table').forEach(table => {
-        let tbody = table.querySelector('tbody');
-        if (!tbody) return;
-
-        // 1. Count all words in the entire table body
-        let words = tbody.innerText.trim().split(/\s+/).filter(w => w.length > 0);
+    contentBlock.querySelectorAll('tr').forEach(tr => {
+        let rowText = tr.innerText || tr.textContent || '';
         
-        // 2. Count all data cells in the entire table body
-        let cells = tbody.querySelectorAll('td');
+        // --- THE SMART BYPASS ---
+        // Count how many words are in this specific row
+        let wordCount = rowText.trim().split(/\s+/).length;
         
-        let wordCount = words.length;
-        let cellCount = cells.length || 1; 
-        
-        // --- THE TABLE-WIDE METRIC ---
-        // Calculate the average density of the entire table
-        let tableAvgDensity = wordCount / cellCount;
-        
-        // If the table as a whole averages more than 3 words per cell, 
-        // it is a Prose/Revision table. Skip the ENTIRE table immediately.
-        if (tableAvgDensity > 3) {
+        // If the row has more than 12 words (e.g., Revision History sentences),
+        // instantly skip it. This preserves perfect single-word highlighting for text blocks.
+        if (wordCount > 12) {
             return; 
         }
         
-        // Otherwise, the table is a strict Data Grid. Lock ALL of its rows.
-        tbody.querySelectorAll('tr').forEach(tr => {
-            let rowText = tr.innerText || tr.textContent || '';
-            let fingerprint = getHash(rowText.replace(/\s+/g, ''));
-            
-            let walker = document.createTreeWalker(tr, NodeFilter.SHOW_TEXT, null, false);
-            let node;
-            while ((node = walker.nextNode())) {
-                if (node.nodeValue.trim() !== '') {
-                    node.nodeValue = node.nodeValue.replace(/([^\s]+)/g, `$1_DIFFLOCK_${fingerprint}_DIFFLOCK_`);
-                }
+        // If it has 12 words or fewer (e.g., Capacity & SSID Data Tables),
+        // apply the lock to prevent the diagonal sliding bug.
+        let fingerprint = getHash(rowText.replace(/\s+/g, ''));
+        let walker = document.createTreeWalker(tr, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while ((node = walker.nextNode())) {
+            if (node.nodeValue.trim() !== '') {
+                // Using the safe _DIFFLOCK_ delimiter
+                node.nodeValue = node.nodeValue.replace(/([^\s]+)/g, `$1_DIFFLOCK_${fingerprint}_DIFFLOCK_`);
             }
-        });
+        }
     });
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     
