@@ -96,8 +96,8 @@ function lockTableWords(contentBlock) {
 
 
 
-// PRODUCTION FIX: "The Cell-Density Bypass"
-function lockTableWords(contentBlock) {
+// PRODUCTION FIX: "Synchronized Table Locking"
+function syncAndLockTables(baseContent, currentContent) {
     function getHash(str) {
         let hash = 0;
         for (let i = 0; i < str.length; i++) {
@@ -107,44 +107,71 @@ function lockTableWords(contentBlock) {
         return Math.abs(hash).toString(36);
     }
 
-    contentBlock.querySelectorAll('tr').forEach(tr => {
-        // 1. Look at every cell in the row individually
-        let cells = tr.querySelectorAll('th, td');
-        let isDataGrid = true;
+    // Grab all tables from both the Old and New documents
+    let baseTables = Array.from(baseContent.querySelectorAll('table'));
+    let currTables = Array.from(currentContent.querySelectorAll('table'));
+    let maxLen = Math.max(baseTables.length, currTables.length);
 
-        cells.forEach(cell => {
-            // Get the clean word count for this specific cell
-            let cellWords = (cell.innerText || cell.textContent || '').trim().split(/\s+/).filter(w => w.length > 0);
-            
-            // --- THE BULLETPROOF LOGIC ---
-            // "Subsystem Device ID (SSID)" is 4 words. 
-            // "Please refer the table 8/9..." is 5+ words.
-            // If ANY cell has 5 or more words, it contains a sentence. Do not lock it!
-            if (cellWords.length > 4) {
-                isDataGrid = false;
-            }
-        });
+    // Pair the tables up and evaluate them together
+    for (let i = 0; i < maxLen; i++) {
+        let bTable = baseTables[i];
+        let cTable = currTables[i];
         
-        // 2. Bypass mixed tables and paragraphs for perfect word-level diffing
-        if (!isDataGrid) {
-            return; 
+        let maxWords = 0;
+        
+        // Helper to check the max words in any cell for a given table
+        let checkMax = (table) => {
+            if (!table) return;
+            table.querySelectorAll('td').forEach(td => {
+                let count = (td.innerText || '').trim().split(/\s+/).filter(w => w.length > 0).length;
+                if (count > maxWords) maxWords = count;
+            });
+        };
+        
+        // 1. Check BOTH the old and new versions of this table
+        checkMax(bTable);
+        checkMax(cTable);
+        
+        // 2. THE SYNC FIX: If EITHER version has a cell with 6+ words, 
+        // bypass BOTH versions. They stay perfectly in sync for word-level diffing!
+        if (maxWords > 5) {
+            continue; 
         }
         
-        // 3. Only lock pure Data Grids (where every cell is short) to prevent diagonal sliding
-        let rowText = tr.innerText || tr.textContent || '';
-        let fingerprint = getHash(rowText.replace(/\s+/g, ''));
-        let walker = document.createTreeWalker(tr, NodeFilter.SHOW_TEXT, null, false);
-        let node;
+        // 3. Otherwise, it is safely a Data Grid in both versions. Lock BOTH.
+        let lockRows = (table) => {
+            if (!table) return;
+            table.querySelectorAll('tbody tr').forEach(tr => {
+                let rowText = tr.innerText || tr.textContent || '';
+                let fingerprint = getHash(rowText.replace(/\s+/g, ''));
+                let walker = document.createTreeWalker(tr, NodeFilter.SHOW_TEXT, null, false);
+                let node;
+                while ((node = walker.nextNode())) {
+                    if (node.nodeValue.trim() !== '') {
+                        node.nodeValue = node.nodeValue.replace(/([^\s]+)/g, `$1_DIFFLOCK_${fingerprint}_DIFFLOCK_`);
+                    }
+                }
+            });
+        };
         
-        while ((node = walker.nextNode())) {
-            if (node.nodeValue.trim() !== '') {
-                node.nodeValue = node.nodeValue.replace(/([^\s]+)/g, `$1_DIFFLOCK_${fingerprint}_DIFFLOCK_`);
-            }
-        }
-    });
+        lockRows(bTable);
+        lockRows(cTable);
+    }
 }
 
 
+
+// --- 1. SYNC AND LOCK BOTH TOGETHER ---
+    syncAndLockTables(baseContent, currentContent);
+
+    // --- 2. RUN ENGINE ---
+    let rawDiffHTML = HtmlDiff.default.execute(baseContent.innerHTML, currentContent.innerHTML);
+
+    // --- 3. CLEANUP ---
+    let cleanDiffHTML = rawDiffHTML.replace(/_DIFFLOCK_[a-zA-Z0-9]*_DIFFLOCK_/g, '');
+    
+    // --- 4. INJECT ---
+    currentContent.innerHTML = cleanDiffHTML;
 
 
 
