@@ -6,6 +6,9 @@ from docutils.core import publish_doctree
 from docutils import nodes
 
 # ... (Keep your DummyDirective registrations here to protect tables) ...
+   def contains_japanese(text):
+    """Detects Kanji, Hiragana, Katakana, JP Punctuation, and Half/Full-width forms."""
+    return bool(re.search(r'[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FBF\u3000-\u303F\uFF00-\uFFEF]', text))
 
 def contains_japanese(text):
     """Detects if a string contains Japanese characters."""
