@@ -77,3 +77,21 @@ def process_mixed_file(source_file):
     with open(en_file, 'w', encoding='utf-8') as f:
         f.write(raw_en_text)
     print(f"[SUCCESS] Generated 100% English file: {en_file}")
+
+import glob
+
+def main():
+    print("--- Starting Mixed File Splitter ---")
+    # Find all .rst files in the content/ directory
+    source_files = glob.glob('content/**/*.rst', recursive=True)
+    
+    if not source_files:
+        print("[INFO] No RST files found in content/ directory.")
+        return
+
+    for filepath in source_files:
+        process_mixed_file(filepath)
+
+if __name__ == "__main__":
+    main()
+
