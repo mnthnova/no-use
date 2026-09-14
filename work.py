@@ -5,7 +5,7 @@ import urllib3
 import polib
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-INTERNAL_API_URL = "https://translator.tsip.intratmc.com/api/translate/text"
+INTERNAL_API_URL = ""
 
 def contains_japanese(text):
     """Detects Kanji, Hiragana, Katakana, JP Punctuation, and Half/Full-width forms."""
