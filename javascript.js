@@ -1,12 +1,22 @@
+(function() {
+    'use strict';
+
+    let diffActive = false;
+    let previousHTML = null;
+    let dmp = new diff_match_patch();
+
+    let currentBranch = window.location.pathname.match(/\/([^\/]+)\/current\//)
+        ? window.location.pathname.match(/\/([^\/]+)\/current\//)[1]
+        : (window.location.pathname.split("/")[2] || "");
+    let targetBranch = ""; // Will be dynamically set
+
     async function injectDiffControls() {
         if (document.getElementById('diff-settings-panel')) return;
-
-        const versionSelect = document.getElementById('version-select');
 
         let panel = document.createElement('div');
         panel.id = 'diff-settings-panel';
 
-        // Unified CSS for both Search Bars, Dropdowns, and Toggle Button
+        // Unified CSS for Search Bars, Dropdowns, and Toggle Button
         const style = document.createElement('style');
         style.textContent = `
             .sidebar-search-input {
@@ -21,7 +31,6 @@
                 border-radius: 6px !important;
                 box-sizing: border-box !important;
                 outline: none !important;
-                transition: border-color 0.2s, background-color 0.2s !important;
             }
             .sidebar-search-input:focus {
                 background-color: #ffffff !important;
@@ -40,12 +49,7 @@
                 cursor: pointer !important;
                 outline: none !important;
                 box-sizing: border-box !important;
-                transition: border-color 0.2s, box-shadow 0.2s !important;
                 margin-top: 2px !important;
-            }
-            #version-select:focus, #compare-branch-select:focus {
-                border-color: #0366d6 !important;
-                box-shadow: 0 0 0 2px rgba(3, 102, 214, 0.25) !important;
             }
             #diff-settings-panel {
                 margin-top: 12px;
@@ -56,7 +60,7 @@
                 gap: 6px;
                 width: 100%;
                 box-sizing: border-box;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
             }
             .diff-sidebar-label {
                 font-size: 11px;
@@ -82,7 +86,6 @@
                 justify-content: center;
                 gap: 6px;
                 transition: all 0.2s ease;
-                box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
             }
             #diff-toggle-btn:hover:not(:disabled) {
                 background-color: #0255b3;
@@ -90,14 +93,10 @@
             #diff-toggle-btn.diff-active {
                 background-color: #2ea44f;
             }
-            #diff-toggle-btn.diff-active:hover {
-                background-color: #268c43;
-            }
             #diff-toggle-btn:disabled {
                 background-color: #484f58;
                 color: #8b949e;
                 cursor: not-allowed;
-                box-shadow: none;
             }
             .status-dot {
                 width: 8px;
@@ -109,12 +108,12 @@
         `;
         document.head.appendChild(style);
 
-        // Helper function to wire a live search input to any <select> with <optgroup>s
+        // Live Search Filter helper for <select> elements with <optgroup>
         function attachSelectFilter(selectEl, searchInputEl, onFilterComplete) {
             let cachedStructure = null;
 
             function snapshotOptions() {
-                if (cachedStructure && cachedStructure.some(g => g.options.length > 0)) return;
+                if (cachedStructure && cachedStructure.some(g => g.options && g.options.length > 0)) return;
                 cachedStructure = [];
                 Array.from(selectEl.children).forEach(child => {
                     if (child.tagName === 'OPTGROUP') {
@@ -125,7 +124,6 @@
                                 value: o.value,
                                 text: o.textContent,
                                 disabled: o.disabled,
-                                selected: o.selected,
                                 dataType: o.getAttribute('data-type')
                             }))
                         });
@@ -135,7 +133,6 @@
                             value: child.value,
                             text: child.textContent,
                             disabled: child.disabled,
-                            selected: child.selected,
                             dataType: child.getAttribute('data-type')
                         });
                     }
@@ -178,7 +175,6 @@
                     }
                 });
 
-                // If nothing matched, show a placeholder option
                 if (selectEl.options.length === 0) {
                     const emptyOpt = document.createElement('option');
                     emptyOpt.value = "";
@@ -186,7 +182,6 @@
                     emptyOpt.disabled = true;
                     selectEl.appendChild(emptyOpt);
                 } else if (selectEl.selectedIndex === -1 || selectEl.options[selectEl.selectedIndex].disabled) {
-                    // Auto-pick first non-disabled option when filtering
                     for (let i = 0; i < selectEl.options.length; i++) {
                         if (!selectEl.options[i].disabled) {
                             selectEl.selectedIndex = i;
@@ -199,37 +194,16 @@
             });
         }
 
-        // --- 1. ADD SEARCH BAR ABOVE EXISTING "VERSIONS" DROPDOWN ---
-        if (versionSelect) {
-            if (versionSelect.previousElementSibling) {
-                versionSelect.previousElementSibling.className = 'diff-sidebar-label';
-                versionSelect.previousElementSibling.style.margin = '0 0 2px 0';
-            }
-            let versionSearch = document.createElement('input');
-            versionSearch.type = 'text';
-            versionSearch.className = 'sidebar-search-input';
-            versionSearch.placeholder = '🔍 Search versions...';
-            versionSelect.insertAdjacentElement('beforebegin', versionSearch);
-
-            // Filter Versions dropdown & allow pressing Enter to jump straight to filtered result
-            attachSelectFilter(versionSelect, versionSearch);
-            versionSearch.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter' && versionSelect.value) {
-                    versionSelect.dispatchEvent(new Event('change'));
-                }
-            });
-        }
-
-        // --- 2. BUILD "COMPARE AGAINST" SECTION ---
+        // 1. Build "Compare against:" Label, Search Bar, Dropdown, and Toggle Button
         let label = document.createElement('div');
         label.className = 'diff-sidebar-label';
-        label.textContent = "Compare against";
+        label.textContent = "Compare against:";
         panel.appendChild(label);
 
         let compareSearch = document.createElement('input');
         compareSearch.type = 'text';
         compareSearch.className = 'sidebar-search-input';
-        compareSearch.placeholder = '🔍 Search branch or tag...';
+        compareSearch.placeholder = 'Search branch or tag...';
         panel.appendChild(compareSearch);
 
         let branchSelect = document.createElement('select');
@@ -253,11 +227,10 @@
                 toggleBtn.innerHTML = `Compare Diff`;
             }
         }
-        window.updateDiffBtnUI = updateToggleBtnUI;
 
         // Fetch and Sort the JSON
         try {
-            let basePath = window.location.pathname.split(`/${currentBranch}/current/`)[0];
+            let basePath = window.location.origin + "/" + window.location.pathname.split("/")[1];
             let response = await fetch(`${basePath}/versions.json`);
             if (response.ok) {
                 let versions = await response.json();
@@ -310,7 +283,6 @@
             targetBranch = "main";
         }
 
-        // Wire live search to Compare Against dropdown
         attachSelectFilter(branchSelect, compareSearch, function() {
             targetBranch = branchSelect.value;
             previousHTML = null;
@@ -319,10 +291,10 @@
 
         updateToggleBtnUI();
 
-        // --- EVENT LISTENERS ---
+        // --- THE EVENT LISTENERS ---
         branchSelect.addEventListener('change', async function(e) {
             targetBranch = e.target.value;
-            previousHTML = null; // Clear cache so it fetches the newly selected branch
+            previousHTML = null;
 
             if (!targetBranch || targetBranch === currentBranch) {
                 if (diffActive) await toggleDiff();
@@ -342,12 +314,60 @@
             updateToggleBtnUI();
         });
 
+        // Keep button synced if 'd' key is pressed
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'd' && e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
+                setTimeout(updateToggleBtnUI, 300);
+            }
+        });
+
         panel.appendChild(branchSelect);
         panel.appendChild(toggleBtn);
 
+        // Mount below #version-select in the sidebar and attach search bar to Versions
+        const versionSelect = document.getElementById('version-select');
         if (versionSelect && versionSelect.parentNode) {
+            if (versionSelect.previousElementSibling) {
+                versionSelect.previousElementSibling.className = 'diff-sidebar-label';
+                versionSelect.previousElementSibling.style.margin = '0 0 2px 0';
+            }
+            let versionSearch = document.createElement('input');
+            versionSearch.type = 'text';
+            versionSearch.className = 'sidebar-search-input';
+            versionSearch.placeholder = 'Search versions...';
+            versionSelect.insertAdjacentElement('beforebegin', versionSearch);
+            attachSelectFilter(versionSelect, versionSearch);
+
             versionSelect.insertAdjacentElement('afterend', panel);
         } else {
             document.body.appendChild(panel);
+        }
+    }
+
+    // Call it safely after DOM is ready
+    if (document.readyState === 'complete') {
+        injectDiffControls();
+    } else {
+        window.addEventListener('load', injectDiffControls);
+    }
+
+    // 2. THE SIMPLIFIED URL ROUTER
+    function getPreviousURL() {
+        let path = window.location.pathname;
+        let searchString = `/${currentBranch}/current/`;
+        let replaceString = `/${targetBranch}/current/`;
+        return path.replace(searchString, replaceString);
+    }
+
+    async function fetchPreviouspage() {
+        let prevURL = getPreviousURL();
+        try {
+            let response = await fetch(prevURL);
+            if (response.ok) {
+                return await response.text();
+            }
+        } catch (e) {
+            console.warn('Visual Diff : Network Error: ', e);
+            return null;
         }
     }
