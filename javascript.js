@@ -371,3 +371,116 @@
             return null;
         }
     }
+    
+    
+    
+        function attachSelectFilter(selectEl, searchInputEl, onFilterComplete) {
+            let cachedStructure = null;
+            let isExpanded = false;
+
+            function snapshotOptions() {
+                if (cachedStructure && cachedStructure.some(g => g.options && g.options.length > 0)) return;
+                cachedStructure = [];
+                Array.from(selectEl.children).forEach(child => {
+                    if (child.tagName === 'OPTGROUP') {
+                        cachedStructure.push({
+                            type: 'optgroup',
+                            label: child.label,
+                            options: Array.from(child.children).map(o => ({
+                                value: o.value,
+                                text: o.textContent,
+                                disabled: o.disabled,
+                                dataType: o.getAttribute('data-type')
+                            }))
+                        });
+                    } else if (child.tagName === 'OPTION') {
+                        cachedStructure.push({
+                            type: 'option',
+                            value: child.value,
+                            text: child.textContent,
+                            disabled: child.disabled,
+                            dataType: child.getAttribute('data-type')
+                        });
+                    }
+                });
+            }
+
+            function renderOptions(query = "") {
+                const previousValue = selectEl.value;
+                selectEl.innerHTML = '';
+                
+                cachedStructure.forEach(item => {
+                    if (item.type === 'optgroup') {
+                        // Partial match: checks if typed letters exist anywhere in the branch name
+                        const matchingOpts = item.options.filter(o => o.text.toLowerCase().includes(query));
+                        if (matchingOpts.length > 0) {
+                            const group = document.createElement('optgroup');
+                            group.label = item.label;
+                            matchingOpts.forEach(o => {
+                                const opt = document.createElement('option');
+                                opt.value = o.value;
+                                opt.textContent = o.text;
+                                opt.disabled = o.disabled;
+                                if (o.dataType) opt.setAttribute('data-type', o.dataType);
+                                if (o.value === previousValue) opt.selected = true;
+                                group.appendChild(opt);
+                            });
+                            selectEl.appendChild(group);
+                        }
+                    } else if (item.type === 'option') {
+                        if (item.text.toLowerCase().includes(query)) {
+                            const opt = document.createElement('option');
+                            opt.value = item.value;
+                            opt.textContent = item.text;
+                            opt.disabled = item.disabled;
+                            if (item.value === previousValue) opt.selected = true;
+                            selectEl.appendChild(opt);
+                        }
+                    }
+                });
+
+                if (selectEl.options.length === 0) {
+                    const emptyOpt = document.createElement('option');
+                    emptyOpt.value = "";
+                    emptyOpt.textContent = "No matches found";
+                    emptyOpt.disabled = true;
+                    selectEl.appendChild(emptyOpt);
+                }
+            }
+
+            // 1. Expand the dropdown visually as soon as they click the search bar
+            searchInputEl.addEventListener('focus', () => {
+                snapshotOptions();
+                renderOptions(searchInputEl.value.trim().toLowerCase());
+                selectEl.size = 6; // Opens the dropdown to show 6 suggestions at once
+                isExpanded = true;
+            });
+
+            // 2. Filter live as they type (No more auto-selecting!)
+            searchInputEl.addEventListener('input', function() {
+                renderOptions(this.value.trim().toLowerCase());
+                selectEl.size = 6; // Keep the list expanded while typing
+            });
+
+            // 3. When the user MANUALLY clicks an option, collapse it and trigger the change
+            selectEl.addEventListener('change', () => {
+                if (isExpanded) {
+                    selectEl.size = 1; // Collapse back to a normal 1-line dropdown
+                    searchInputEl.value = ''; // Clear the search bar
+                    renderOptions(""); // Restore the full list in the background
+                    isExpanded = false;
+                }
+                if (onFilterComplete) onFilterComplete();
+            });
+
+            // 4. Collapse safely if they click away anywhere else on the screen
+            document.addEventListener('click', (e) => {
+                if (isExpanded && e.target !== searchInputEl && e.target !== selectEl) {
+                    selectEl.size = 1;
+                    searchInputEl.value = '';
+                    renderOptions(""); 
+                    isExpanded = false;
+                }
+            });
+        }
+
