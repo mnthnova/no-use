@@ -22,3 +22,19 @@
                 overflow-y: auto !important;
                 padding: 4px !important;
             }
+            
+            
+
+/* 1. SECTION HEADINGS ONLY */
+/* Colors the H1/H2/H3 but protects the black paragraphs beneath them */
+section.red > h1, section.red > h2, section.red > h3, section.red > h4 { color: red !important; }
+section.lime > h1, section.lime > h2, section.lime > h3, section.lime > h4 { color: lime !important; }
+section.violet > h1, section.violet > h2, section.violet > h3, section.violet > h4 { color: violet !important; }
+section.blue > h1, section.blue > h2, section.blue > h3, section.blue > h4 { color: blue !important; }
+
+/* 2. INLINE WORDS & SINGLE PARAGRAPHS */
+/* Keeps your inline :red:`word` and single paragraph colors working normally */
+span.red, p.red { color: red !important; }
+span.lime, p.lime { color: lime !important; }
+span.violet, p.violet { color: violet !important; }
+span.blue, p.blue { color: blue !important; }
