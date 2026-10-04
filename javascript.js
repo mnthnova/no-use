@@ -128,14 +128,18 @@
 
         // 2. Logic to convert a boring <select> into a sleek Searchable Dropdown
         function createUnifiedDropdown(selectEl, searchPlaceholder) {
-            selectEl.style.display = 'none'; // Hide native select
+            if (!selectEl) return null;
+            selectEl.style.display = 'none'; 
 
             const wrapper = document.createElement('div');
             wrapper.className = 'custom-dropdown-wrapper';
 
             const displayBtn = document.createElement('div');
             displayBtn.className = 'cd-display';
-            displayBtn.innerHTML = `<span>${selectEl.options[selectEl.selectedIndex]?.text || 'Select...'}</span> <i class="fa fa-caret-down"></i>`;
+            
+            // Set initial text if options exist
+            const initOpt = selectEl.options[selectEl.selectedIndex];
+            displayBtn.innerHTML = `<span>${initOpt ? initOpt.text : 'Select...'}</span> <i class="fa fa-caret-down"></i>`;
 
             const menu = document.createElement('div');
             menu.className = 'cd-menu';
@@ -152,6 +156,7 @@
                 optionsContainer.innerHTML = '';
                 let hasMatches = false;
 
+                // Handles both <optgroup> formatting and flat <option> formatting
                 Array.from(selectEl.children).forEach(child => {
                     if (child.tagName === 'OPTGROUP') {
                         const matches = Array.from(child.children).filter(o => o.text.toLowerCase().includes(query));
@@ -178,6 +183,23 @@
                                 optionsContainer.appendChild(opt);
                             });
                         }
+                    } else if (child.tagName === 'OPTION') {
+                        if (child.text.toLowerCase().includes(query)) {
+                            hasMatches = true;
+                            const opt = document.createElement('div');
+                            opt.className = 'cd-option' + (child.selected ? ' selected' : '') + (child.disabled ? ' disabled' : '');
+                            opt.textContent = child.text;
+                            if (!child.disabled) {
+                                opt.addEventListener('click', (e) => {
+                                    e.stopPropagation();
+                                    selectEl.value = child.value;
+                                    displayBtn.querySelector('span').textContent = child.text;
+                                    menu.classList.remove('show');
+                                    selectEl.dispatchEvent(new Event('change'));
+                                });
+                            }
+                            optionsContainer.appendChild(opt);
+                        }
                     }
                 });
 
@@ -186,11 +208,21 @@
                 }
             }
 
+            // Sync with native select if it gets populated late (e.g. by versioning.html)
+            const observer = new MutationObserver(() => {
+                const currentOpt = selectEl.options[selectEl.selectedIndex];
+                if (currentOpt) {
+                    displayBtn.querySelector('span').textContent = currentOpt.text;
+                }
+                renderList(searchInput.value.trim().toLowerCase());
+            });
+            observer.observe(selectEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['selected'] });
+
             // Click triggers
             displayBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const isShowing = menu.classList.contains('show');
-                document.querySelectorAll('.cd-menu').forEach(m => m.classList.remove('show')); // Close others
+                document.querySelectorAll('.cd-menu').forEach(m => m.classList.remove('show'));
                 if (!isShowing) {
                     menu.classList.add('show');
                     searchInput.value = '';
@@ -215,9 +247,11 @@
 
             selectEl.parentNode.insertBefore(wrapper, selectEl.nextSibling);
             renderList();
+            
+            return wrapper; // Return wrapper so we can chain the layout order perfectly!
         }
 
-        // 3. Build UI Elements
+        // 3. Build "Compare against:" Label, Select, and Toggle Button
         let label = document.createElement('div');
         label.className = 'diff-sidebar-label';
         label.textContent = "Compare against:";
@@ -247,7 +281,7 @@
         }
         window.updateDiffBtnUI = updateToggleBtnUI;
 
-        // 4. Fetch JSON and Populate Options
+        // 4. Fetch JSON and Populate Options for the Compare dropdown
         try {
             let basePath = window.location.origin + "/" + window.location.pathname.split("/")[1];
             let response = await fetch(`${basePath}/versions.json`);
@@ -295,7 +329,7 @@
             targetBranch = "main";
         }
 
-        // Apply Custom UI to Compare Select
+        // Apply Custom UI to the Compare Dropdown
         createUnifiedDropdown(branchSelect, "Search branch or tag...");
         updateToggleBtnUI();
 
@@ -320,15 +354,19 @@
 
         panel.appendChild(toggleBtn);
 
-        // 6. Mount and apply Custom UI to the existing Versions Select
+        // 6. Mount and Apply Custom UI to the Top Versions Select 
         const versionSelect = document.getElementById('version-select');
         if (versionSelect && versionSelect.parentNode) {
             if (versionSelect.previousElementSibling) {
                 versionSelect.previousElementSibling.className = 'diff-sidebar-label';
                 versionSelect.previousElementSibling.style.margin = '0 0 2px 0';
             }
-            createUnifiedDropdown(versionSelect, "Search versions...");
-            versionSelect.insertAdjacentElement('afterend', panel);
+            
+            // Create the wrapper and capture the returned element
+            const vWrapper = createUnifiedDropdown(versionSelect, "Search versions...");
+            
+            // Mount the Diff Panel precisely beneath the wrapper so it stays in order!
+            vWrapper.insertAdjacentElement('afterend', panel);
         } else {
             document.body.appendChild(panel);
         }
