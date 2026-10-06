@@ -38,3 +38,19 @@ span.red, p.red { color: red !important; }
 span.lime, p.lime { color: lime !important; }
 span.violet, p.violet { color: violet !important; }
 span.blue, p.blue { color: blue !important; }
+
+
+
+/* 1. SECTION HEADINGS ONLY (Prevents color from bleeding to the rest of the page) */
+section.red > h1, section.red > h2, section.red > h3, section.red > h4, section.red > h5, section.red > h6 { color: red !important; }
+section.lime > h1, section.lime > h2, section.lime > h3, section.lime > h4, section.lime > h5, section.lime > h6 { color: lime !important; }
+section.violet > h1, section.violet > h2, section.violet > h3, section.violet > h4, section.violet > h5, section.violet > h6 { color: violet !important; }
+section.blue > h1, section.blue > h2, section.blue > h3, section.blue > h4, section.blue > h5, section.blue > h6 { color: blue !important; }
+
+/* 2. EVERYTHING ELSE (Tables, Lists, Paragraphs, Inline Words) */
+/* Colors the target block and every nested element inside it (like table cells or list items), UNLESS it is a section */
+.red:not(section), .red:not(section) * { color: red !important; }
+.lime:not(section), .lime:not(section) * { color: lime !important; }
+.violet:not(section), .violet:not(section) * { color: violet !important; }
+.blue:not(section), .blue:not(section) * { color: blue !important; }
+
