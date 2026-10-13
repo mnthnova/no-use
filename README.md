@@ -1,4 +1,10 @@
-docker compose run --rm --entrypoint grep web -o "ENV_ENABLE_[A-Z_]*" /var/lib/hypothesis/conf/supervisord.conf || docker compose run --rm --entrypoint grep web -R "ENV_ENABLE_" /
-
-
-
+docker compose exec web sh -c '
+python -c "
+import os
+from sqlalchemy.engine import make_url
+u = make_url(os.environ[\"DATABASE_URL\"])
+print(\"Database host:\", u.host)
+print(\"Database name:\", u.database)
+print(\"Database user:\", u.username)
+"
+'
