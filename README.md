@@ -10,6 +10,5 @@ print(\"Database user:\", u.username)
 '
 
 
-
-docker compose exec web python -c \
-"import socket; s=socket.create_connection(('rabbitmq',5672),timeout=5); print('RabbitMQ port is reachable'); s.close()"
+docker compose exec web sh -lc \
+'grep -R -n -E "MODEL_CREATE_ALL|create_all\(" /usr/local/lib/python3.11/site-packages/hypothesis 2>/dev/null | head -80'
