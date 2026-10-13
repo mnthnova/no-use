@@ -9,3 +9,9 @@ pre_create(engine)
 Base.metadata.create_all(engine)
 print("Hypothesis database tables created.")
 '
+
+
+PG_VOLUME=$(docker inspect "$PG_CONTAINER" \
+  --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}')
+
+echo "PostgreSQL volume: $PG_VOLUME"
