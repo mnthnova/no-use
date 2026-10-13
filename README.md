@@ -11,6 +11,5 @@ print(\"Database user:\", u.username)
 
 
 
-
-docker compose exec web sh -lc \
-'env | grep -E "^(MODEL_CREATE_ALL|DATABASE_URL|ENABLE_WEB|ENABLE_WORKER|WEB_NUM_WORKERS)=" | sed "s/^DATABASE_URL=.*/DATABASE_URL=[REDACTED]/"'
+docker compose exec web python -c \
+"import socket; s=socket.create_connection(('rabbitmq',5672),timeout=5); print('RabbitMQ port is reachable'); s.close()"
