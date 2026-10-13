@@ -8,3 +8,8 @@ print(\"Database name:\", u.database)
 print(\"Database user:\", u.username)
 "
 '
+
+
+
+
+docker compose logs --tail=200 web 2>&1 | grep -iE 'create_all|migration|alembic|undefinedtable|traceback|error'
