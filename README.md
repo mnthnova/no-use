@@ -12,4 +12,5 @@ print(\"Database user:\", u.username)
 
 
 
-docker compose logs --tail=200 web 2>&1 | grep -iE 'create_all|migration|alembic|undefinedtable|traceback|error'
+docker compose exec web sh -lc \
+'env | grep -E "^(MODEL_CREATE_ALL|DATABASE_URL|ENABLE_WEB|ENABLE_WORKER|WEB_NUM_WORKERS)=" | sed "s/^DATABASE_URL=.*/DATABASE_URL=[REDACTED]/"'
