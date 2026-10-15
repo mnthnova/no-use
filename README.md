@@ -23,9 +23,4 @@ python3 -c "from h.search.client import get_client; es = get_client({'es.url': '
 
 
 
-
-
 docker compose exec web sh -lc 'cd /var/lib/hypothesis && grep -RInE "class IdentityProvider|ORCID|GOOGLE|FACEBOOK|oidc_client_id" h conf --include="*.py" --include="*.ini" --include="*.yaml" --include="*.yml" 2>/dev/null | head -60'
-echo "=== Login form provider links ==="
-sed -n "1,200p" h/static/scripts/components/LoginForm.tsx
-'
