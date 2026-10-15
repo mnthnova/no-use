@@ -22,18 +22,26 @@ python3 -c "from h.search.client import get_client; es = get_client({'es.url': '
 
 
 
+
+
+
+
 docker compose exec web sh -lc '
 cd /var/lib/hypothesis || exit 1
 
-echo "=== GitLab/OIDC references in Hypothesis source ==="
+echo "=== Authentication settings ==="
 grep -RInE \
-"H_AUTHENTICATION_PROVIDER|GITLAB_CLIENT_ID|GITLAB_CLIENT_SECRET|GITLAB_BASE_URL|OIDC_ISSUER_URL|gitlab" \
-h conf bin \
+"H_AUTHENTICATION_PROVIDER|OIDC_AUTHURL|OIDC_CLIENTID|OIDC_CLIENTSECRET|AUTHENTICATION_PROVIDER" \
+conf h \
+--exclude-dir=migrations \
+--exclude-dir=tests \
 --exclude="*.map" \
---exclude="*.lock" \
 2>/dev/null | head -100
 
-echo "=== Authentication-related source files ==="
-find h conf -type f 2>/dev/null |
-grep -Ei "auth|login|oauth|oidc|provider"
+echo "=== Login provider implementation ==="
+sed -n "1,240p" h/views/oidc.py
+sed -n "1,240p" h/services/oidc.py
+
+echo "=== Login form provider links ==="
+sed -n "1,200p" h/static/scripts/components/LoginForm.tsx
 '
