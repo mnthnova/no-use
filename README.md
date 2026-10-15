@@ -22,5 +22,14 @@ python3 -c "from h.search.client import get_client; es = get_client({'es.url': '
 
 
 
-
-docker compose exec web sh -lc 'cd /var/lib/hypothesis && grep -RInE "class IdentityProvider|ORCID|GOOGLE|FACEBOOK|oidc_client_id" h conf --include="*.py" --include="*.ini" --include="*.yaml" --include="*.yml" 2>/dev/null | head -60'
+docker compose exec web sh -lc '
+cd /var/lib/hypothesis || exit 1
+echo "=== Provider enum ==="
+grep -n -A35 -B5 "class IdentityProvider" h/models/user_identity.py
+echo "=== OIDC callback and routes ==="
+grep -n -E "oidc.redirect|def redirect|add_route|add_view|route_name=" h/views/oidc.py
+echo "=== OIDC service ==="
+sed -n "1,180p" h/services/oidc.py
+echo "=== Login provider buttons ==="
+grep -n -E -i "orcid|google|facebook|SocialLoginLink" h/static/scripts/components/LoginForm.tsx
+'
