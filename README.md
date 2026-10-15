@@ -22,16 +22,20 @@ python3 -c "from h.search.client import get_client; es = get_client({'es.url': '
 
 
 docker compose exec web sh -lc '
-echo "=== Current directory ==="
-pwd
+echo "=== Running image ==="
+cat /etc/os-release 2>/dev/null | head -5
 
-echo "=== Application directories ==="
-ls -ld /var/local/hypothesis /app /srv /usr/src/app 2>/dev/null
+echo "=== Hypothesis application ==="
+ls -la /var/local/hypothesis
+ls -la /var/local/hypothesis/app 2>/dev/null
 
-echo "=== Authentication implementation ==="
+echo "=== Authentication provider references ==="
 grep -RInE \
-"H_AUTHENTICATION_PROVIDER|GITLAB_CLIENT_ID|OIDC_ISSUER_URL" \
-/var/local/hypothesis /app /srv /usr/src/app \
+"H_AUTHENTICATION_PROVIDER|GITLAB_CLIENT_ID|gitlab" \
+/var/local/hypothesis \
 --exclude="*.map" --exclude="*.lock" \
-2>/dev/null | head -100
+2>/dev/null | head -80
+
+echo "=== Python packages ==="
+python -m pip show h 2>/dev/null
 '
