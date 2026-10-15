@@ -29,18 +29,21 @@ python3 -c "from h.search.client import get_client; es = get_client({'es.url': '
 docker compose exec web sh -lc '
 cd /var/lib/hypothesis || exit 1
 
-echo "=== Authentication settings ==="
-grep -RInE \
-"H_AUTHENTICATION_PROVIDER|OIDC_AUTHURL|OIDC_CLIENTID|OIDC_CLIENTSECRET|AUTHENTICATION_PROVIDER" \
-conf h \
---exclude-dir=migrations \
---exclude-dir=tests \
---exclude="*.map" \
-2>/dev/null | head -100
+echo "=== Identity provider definitions ==="
+grep -RInE "class IdentityProvider|ORCID|GOOGLE|FACEBOOK" \
+    h/models h \
+    --include="*.py" \
+    --exclude-dir=migrations \
+    --exclude-dir=tests 2>/dev/null | head -50
 
-echo "=== Login provider implementation ==="
-sed -n "1,240p" h/views/oidc.py
-sed -n "1,240p" h/services/oidc.py
+echo "=== OIDC routes ==="
+grep -RInE "oidc\.(connect|login|redirect)" \
+    h --include="*.py" --exclude-dir=tests 2>/dev/null | head -60
+
+echo "=== OIDC configuration ==="
+grep -RInE "oidc_client_id|oidc_client_secret|oidc_authorizationurl|oidc_tokenurl|oidc_keyset_url" \
+    conf h --include="*.py" --exclude-dir=tests 2>/dev/null | head -60
+'
 
 echo "=== Login form provider links ==="
 sed -n "1,200p" h/static/scripts/components/LoginForm.tsx
