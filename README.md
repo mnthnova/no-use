@@ -21,21 +21,19 @@ echo "PostgreSQL volume: $PG_VOLUME"
 python3 -c "from h.search.client import get_client; es = get_client({'es.url': 'http://elasticsearch:9200', 'es.index': 'hypothesis'}); es.conn.indices.create(index='hypothesis', ignore=400); print('SUCCESS: Base index created!')"
 
 
+
 docker compose exec web sh -lc '
-echo "=== Running image ==="
-cat /etc/os-release 2>/dev/null | head -5
+cd /var/lib/hypothesis || exit 1
 
-echo "=== Hypothesis application ==="
-ls -la /var/local/hypothesis
-ls -la /var/local/hypothesis/app 2>/dev/null
-
-echo "=== Authentication provider references ==="
+echo "=== GitLab/OIDC references in Hypothesis source ==="
 grep -RInE \
-"H_AUTHENTICATION_PROVIDER|GITLAB_CLIENT_ID|gitlab" \
-/var/local/hypothesis \
---exclude="*.map" --exclude="*.lock" \
-2>/dev/null | head -80
+"H_AUTHENTICATION_PROVIDER|GITLAB_CLIENT_ID|GITLAB_CLIENT_SECRET|GITLAB_BASE_URL|OIDC_ISSUER_URL|gitlab" \
+h conf bin \
+--exclude="*.map" \
+--exclude="*.lock" \
+2>/dev/null | head -100
 
-echo "=== Python packages ==="
-python -m pip show h 2>/dev/null
+echo "=== Authentication-related source files ==="
+find h conf -type f 2>/dev/null |
+grep -Ei "auth|login|oauth|oidc|provider"
 '
