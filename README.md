@@ -22,31 +22,19 @@ python3 -c "from h.search.client import get_client; es = get_client({'es.url': '
 
 
 
-      - H_AUTHENTICATION_PROVIDER=gitlab
-      
-      # ORCID Dummy Config
-      - OIDC_CLIENTID_ORCID=dummy
-      - OIDC_CLIENTSECRET_ORCID=dummy
-      - OIDC_AUTHURL_ORCID=http://dummy
-      - OIDC_TOKENURL_ORCID=http://dummy
-      - OIDC_PROFILEURL_ORCID=http://dummy
-      - OIDC_KEYSETURL_ORCID=http://dummy
-      - OIDC_ISSUERURL_ORCID=http://dummy
+grep -RInE \
+'H_AUTHENTICATION_PROVIDER|GITLAB_CLIENT_ID|OIDC_ISSUER_URL|GITLAB_BASE_URL' \
+. \
+--exclude-dir=.git \
+--exclude-dir=node_modules \
+--exclude='*.lock' \
+--exclude='*.map' \
+2>/dev/null | head -100
 
-      # Google Dummy Config
-      - OIDC_CLIENTID_GOOGLE=dummy
-      - OIDC_CLIENTSECRET_GOOGLE=dummy
-      - OIDC_AUTHURL_GOOGLE=http://dummy
-      - OIDC_TOKENURL_GOOGLE=http://dummy
-      - OIDC_PROFILEURL_GOOGLE=http://dummy
-      - OIDC_KEYSETURL_GOOGLE=http://dummy
-      - OIDC_ISSUERURL_GOOGLE=http://dummy
 
-      # Facebook Dummy Config
-      - OIDC_CLIENTID_FACEBOOK=dummy
-      - OIDC_CLIENTSECRET_FACEBOOK=dummy
-      - OIDC_AUTHURL_FACEBOOK=http://dummy
-      - OIDC_TOKENURL_FACEBOOK=http://dummy
-      - OIDC_PROFILEURL_FACEBOOK=http://dummy
-      - OIDC_KEYSETURL_FACEBOOK=http://dummy
-      - OIDC_ISSUERURL_FACEBOOK=http://dummy
+
+docker compose exec web sh -lc '
+printf "H_AUTHENTICATION_PROVIDER=%s\n" "$H_AUTHENTICATION_PROVIDER"
+printf "OIDC_ISSUER_URL=%s\n" "$OIDC_ISSUER_URL"
+printf "GITLAB_BASE_URL=%s\n" "$GITLAB_BASE_URL"
+'
