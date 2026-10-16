@@ -74,15 +74,26 @@ html_context = {
 }
 
 
-<html>
-  <head>
-    <title>Hypothesis Test</title>
-  </head>
-  <body>
-    <h1>My Sphinx Documentation Sandbox</h1>
-    <p>If Hypothesis is working, a sidebar will appear on the right.</p>
-    <!-- This script reaches through your SSH tunnel to load the GUI -->
-    <script src="http://localhost:2802/embed.js"></script>
-  </body>
-</html>
 
+
+
+{% extends "!layout.html" %}
+
+{% block extrahead %}
+{{ super() }}
+<script type="application/json" class="js-hypothesis-config">
+{
+  "assetRoot": "http://10.116.87.207:8001/",
+  "sidebarAppUrl": "http://10.116.87.207:5005/app.html",
+  "services": [{ "apiUrl": "http://10.116.87.207:5005/api/" }]
+}
+</script>
+<script src="http://10.116.87.207:8001/build/boot.js" async></script>
+{% endblock %}
+
+{% block sidebartitle %}
+    {{ super() }}
+    <div style="padding: 10px; background: black; margin-top: 10px;">
+        {% include "versioning.html" %}
+    </div>
+{% endblock %}
