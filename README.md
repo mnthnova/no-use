@@ -53,3 +53,17 @@ VALUES
    false, (SELECT id FROM organization WHERE pubid = '__default__'), now(), now());
 EOF
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+docker compose exec web python3 -c "import h.search.config as c; from h.search.client import get_client; c._ensure_icu_plugin = lambda conn: None; [v.update({'tokenizer': 'standard'}) for v in c.ANALYSIS_SETTINGS.get('analyzer', {}).values() if v.get('tokenizer') == 'icu_tokenizer']; [v.update({'type': 'asciifolding'}) for v in c.ANALYSIS_SETTINGS.get('filter', {}).values() if v.get('type') == 'icu_folding']; es = get_client({'es.url': 'http://elasticsearch:9200', 'es.index': 'hypothesis'}); c.init(es); print('SUCCESS')"
