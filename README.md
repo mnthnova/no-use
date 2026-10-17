@@ -37,3 +37,19 @@ grep -n -E -i "orcid|google|facebook|SocialLoginLink" h/static/scripts/component
 
 curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==" http://ip:5005/ws
 
+
+
+docker compose exec -T postgres psql -U postgres -d postgres <<'EOF'
+INSERT INTO organization (pubid, name, authority, created, updated)
+VALUES ('__default__', 'Hypothesis', 'gitlab.tsip.intratmc.com', now(), now());
+
+INSERT INTO "group"
+  (pubid, authority, name, authority_provided_id,
+   joinable_by, readable_by, writeable_by,
+   enforce_scope, organization_id, created, updated)
+VALUES
+  ('__world__', 'gitlab.tsip.intratmc.com', 'Public', '__world__',
+   NULL, 'world', 'authority',
+   false, (SELECT id FROM organization WHERE pubid = '__default__'), now(), now());
+EOF
+
