@@ -33,3 +33,7 @@ sed -n "1,180p" h/services/oidc.py
 echo "=== Login provider buttons ==="
 grep -n -E -i "orcid|google|facebook|SocialLoginLink" h/static/scripts/components/LoginForm.tsx
 '
+
+
+curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==" http://ip:5005/ws
+
