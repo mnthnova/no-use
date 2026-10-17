@@ -65,4 +65,4 @@ EOF
 
 
 
-docker compose exec web python3 -c "import h.search.config as c; from h.search.client import get_client; c._ensure_icu_plugin = lambda conn: None; [v.update({'tokenizer': 'standard'}) for v in c.ANALYSIS_SETTINGS.get('analyzer', {}).values() if v.get('tokenizer') == 'icu_tokenizer']; [v.update({'type': 'asciifolding'}) for v in c.ANALYSIS_SETTINGS.get('filter', {}).values() if v.get('type') == 'icu_folding']; es = get_client({'es.url': 'http://elasticsearch:9200', 'es.index': 'hypothesis'}); c.init(es); print('Mappings:', es.conn.indices.get_mapping(index='hypothesis'))"
+docker compose exec web python3 -c "import json, h.search.config as c; from h.search.client import get_client; c._ensure_icu_plugin = lambda conn: None; s = json.dumps(c.ANALYSIS_SETTINGS).replace('icu_tokenizer', 'standard').replace('icu_folding', 'asciifolding'); c.ANALYSIS_SETTINGS.clear(); c.ANALYSIS_SETTINGS.update(json.loads(s)); es = get_client({'es.url': 'http://elasticsearch:9200', 'es.index': 'hypothesis'}); c.init(es); print('SUCCESS! Mapping keys:', list(es.conn.indices.get_mapping(index='hypothesis').values())[0]['mappings'].keys())"
