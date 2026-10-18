@@ -81,10 +81,10 @@ docker compose exec web python3 -c "import json, h.search.config as c; from h.se
 
 
 docker compose exec web sh -c "
-echo '=== 1. USER_SIGNUP.PY ==='
-sed -n '1,65p' /var/lib/hypothesis/h/services/user_signup.py
-echo '=== 2. GOOGLE ICON (rt) IN BUNDLE ==='
-python3 -c 't=open(\"/var/lib/hypothesis/build/scripts/login-forms.bundle.js\").read(); idx=t.find(\"Continue with \"); print(t[max(0,idx-900):idx+300])'
+echo '=== 1. REST OF USER_SIGNUP.PY (lines 66-135) ==='
+sed -n '66,135p' /var/lib/hypothesis/h/services/user_signup.py
+echo '=== 2. EXACT GOOGLE ICON (function rt) ==='
+python3 -c 't=open(\"/var/lib/hypothesis/build/scripts/login-forms.bundle.js\").read(); i=t.find(\"function rt(\"); print(t[i:i+900])'
 echo '=== 3. ACCOUNT SETTINGS GOOGLE TEXT ==='
-grep -rn 'Google account\|AccountSettingsForms' /var/lib/hypothesis/h/ /var/lib/hypothesis/build/ | head -n 15
+grep -n 'Google' /var/lib/hypothesis/h/static/scripts/components/AccountSettingsForms.tsx
 "
