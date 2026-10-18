@@ -13,6 +13,8 @@ print("Hypothesis database tables created.")
 '
 
 
+---
+
 PG_VOLUME=$(docker inspect "$PG_CONTAINER" \
   --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}')
 
@@ -60,7 +62,7 @@ VALUES
    false, (SELECT id FROM organization WHERE pubid = '__default__'), now(), now());
 EOF
 
-
+---
 
 
 
@@ -75,16 +77,14 @@ EOF
 docker compose exec web python3 -c "import json, h.search.config as c; from h.search.client import get_client; c._ensure_icu_plugin = lambda conn: None; s = json.dumps(c.ANALYSIS_SETTINGS).replace('icu_tokenizer', 'standard').replace('icu_folding', 'asciifolding'); c.ANALYSIS_SETTINGS.clear(); c.ANALYSIS_SETTINGS.update(json.loads(s)); es = get_client({'es.url': 'http://elasticsearch:9200', 'es.index': 'hypothesis'}); c.init(es); print('SUCCESS! Mapping keys:', list(es.conn.indices.get_mapping(index='hypothesis').values())[0]['mappings'].keys())"
 
 
+---
 
 
-
-docker compose exec web bash -c "
-echo '=== 1. ROUTES.PY ==='
-sed -n '315,326p' /var/lib/hypothesis/h/routes.py
-echo '=== 2. VIEWS/OIDC.PY ==='
-cat -n /var/lib/hypothesis/h/views/oidc.py
-echo '=== 3. SERVICES/OIDC.PY ==='
-cat -n /var/lib/hypothesis/h/services/oidc.py
-echo '=== 4. FRONTEND & TEMPLATES WITH GOOGLE ==='
-grep -rn 'Continue with Google\|Connected:' /var/lib/hypothesis/
+docker compose exec web sh -c "
+echo '=== 1. USER_SIGNUP.PY ==='
+sed -n '1,65p' /var/lib/hypothesis/h/services/user_signup.py
+echo '=== 2. GOOGLE ICON (rt) IN BUNDLE ==='
+python3 -c 't=open(\"/var/lib/hypothesis/build/scripts/login-forms.bundle.js\").read(); idx=t.find(\"Continue with \"); print(t[max(0,idx-900):idx+300])'
+echo '=== 3. ACCOUNT SETTINGS GOOGLE TEXT ==='
+grep -rn 'Google account\|AccountSettingsForms' /var/lib/hypothesis/h/ /var/lib/hypothesis/build/ | head -n 15
 "
