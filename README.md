@@ -78,14 +78,13 @@ docker compose exec web python3 -c "import json, h.search.config as c; from h.se
 
 
 ---
-
-
 cat << 'EOF' > apply_gitlab_sso.py
-import re, shutil
+import os, re, shutil
 
 # 1. Patch h/routes.py: Change external URLs from /oidc/.../google to /oidc/.../gitlab
 routes_path = "/var/lib/hypothesis/h/routes.py"
-shutil.copy2(routes_path + ".bak" if __import__("os").path.exists(routes_path + ".bak") else routes_path, routes_path + ".bak")
+if not os.path.exists(routes_path + ".bak"):
+    shutil.copy2(routes_path, routes_path + ".bak")
 r_txt = open(routes_path + ".bak").read()
 r_txt = r_txt.replace('"/oidc/connect/google"', '"/oidc/connect/gitlab"')
 r_txt = r_txt.replace('"/oidc/login/google"', '"/oidc/login/gitlab"')
@@ -95,71 +94,78 @@ print("1. Patched URLs in h/routes.py -> /oidc/.../gitlab")
 
 # 2. Patch h/views/oidc.py: Auto-create first-time users from GitLab username + change flash messages
 oidc_path = "/var/lib/hypothesis/h/views/oidc.py"
-shutil.copy2(oidc_path + ".bak" if __import__("os").path.exists(oidc_path + ".bak") else oidc_path, oidc_path + ".bak")
+if not os.path.exists(oidc_path + ".bak"):
+    shutil.copy2(oidc_path, oidc_path + ".bak")
 o_txt = open(oidc_path + ".bak").read()
 o_txt = o_txt.replace('provider_name="Google"', 'provider_name="GitLab"')
 o_txt = o_txt.replace('success_message="Google account connected"', 'success_message="GitLab account connected"')
 
-auto_signup_code = """        if not user:
-        raw_uname = (
-            decoded_idtoken.get("preferred_username")
-            or decoded_idtoken.get("nickname")
-            or (decoded_idtoken.get("email") or "").split("@")[0]
-            or f"user_{decoded_idtoken['sub']}"
-        )
-        clean_uname = re.sub(r"[^A-Za-z0-9._]", "_", raw_uname).strip(".")
-        if len(clean_uname) < 3:
-            clean_uname = f"{clean_uname}_gl"
-        clean_uname = clean_uname[:30]
-        email = decoded_idtoken.get("email") or f"{clean_uname}@gitlab.local"
-        user = self._user_service.fetch_by_email(email, self._request.default_authority)
-        if not user:
-            signup_svc = self._request.find_service(name="user_signup")
-            base_uname = clean_uname
-            for suffix in ["", "_1", "_2", "_3", "_4", "_5"]:
-                try_uname = f"{base_uname[:30-len(suffix)]}{suffix}"
-                if not self._user_service.fetch(try_uname, self._request.default_authority):
-                    clean_uname = try_uname
-                    break
-            user = signup_svc.signup(
-                require_activation=False,
-                username=clean_uname,
-                email=email,
-                display_name=decoded_idtoken.get("name") or clean_uname,
-                identities=[{
-                    "provider": self.settings.provider,
-                    "provider_unique_id": decoded_idtoken["sub"],
-                    "email": email,
-                    "name": decoded_idtoken.get("name"),
-                    "given_name": decoded_idtoken.get("given_name"),
-                    "family_name": decoded_idtoken.get("family_name"),
-                }],
+start_marker = '            # Redirect to the "Sign up to Hypothesis with <PROVIDER>" page to'
+end_marker = '        headers = login(user, self._request)'
+
+if start_marker not in o_txt or end_marker not in o_txt:
+    raise RuntimeError("Markers not found in oidc.py")
+
+before = o_txt.split(start_marker)[0]
+after = end_marker + o_txt.split(end_marker, 1)[1]
+
+auto_signup_code = """            # Auto-create user from GitLab username without showing signup form
+            raw_uname = (
+                decoded_idtoken.get("preferred_username")
+                or decoded_idtoken.get("nickname")
+                or (decoded_idtoken.get("email") or "").split("@")[0]
+                or f"user_{decoded_idtoken['sub']}"
             )
-        else:
-            self._oidc_service.add_identity(
-                user,
-                self.settings.provider,
-                provider_unique_id=decoded_idtoken["sub"],
-                email=email,
-                name=decoded_idtoken.get("name"),
-                given_name=decoded_idtoken.get("given_name"),
-                family_name=decoded_idtoken.get("family_name"),
-            )
-        self._request.db.flush()
+            clean_uname = re.sub(r"[^A-Za-z0-9._]", "_", raw_uname).strip(".")
+            if len(clean_uname) < 3:
+                clean_uname = f"{clean_uname}_gl"
+            clean_uname = clean_uname[:30]
+            email = decoded_idtoken.get("email") or f"{clean_uname}@gitlab.local"
+            user = self._user_service.fetch_by_email(email, self._request.default_authority)
+            if not user:
+                signup_svc = self._request.find_service(name="user_signup")
+                base_uname = clean_uname
+                for suffix in ["", "_1", "_2", "_3", "_4", "_5"]:
+                    try_uname = f"{base_uname[:30-len(suffix)]}{suffix}"
+                    if not self._user_service.fetch(try_uname, self._request.default_authority):
+                        clean_uname = try_uname
+                        break
+                user = signup_svc.signup(
+                    require_activation=False,
+                    username=clean_uname,
+                    email=email,
+                    display_name=decoded_idtoken.get("name") or clean_uname,
+                    identities=[{
+                        "provider": self.settings.provider,
+                        "provider_unique_id": decoded_idtoken["sub"],
+                        "email": email,
+                        "name": decoded_idtoken.get("name"),
+                        "given_name": decoded_idtoken.get("given_name"),
+                        "family_name": decoded_idtoken.get("family_name"),
+                    }],
+                )
+            else:
+                self._oidc_service.add_identity(
+                    user,
+                    self.settings.provider,
+                    provider_unique_id=decoded_idtoken["sub"],
+                    email=email,
+                    name=decoded_idtoken.get("name"),
+                    given_name=decoded_idtoken.get("given_name"),
+                    family_name=decoded_idtoken.get("family_name"),
+                )
+            self._request.db.flush()
+
 """
 
-# Add 'import re' at top of oidc.py and replace the signup redirect block
-o_txt = "import re\n" + o_txt
-pattern = r"        if not user:\s+# Redirect to the \"Sign up to Hypothesis with <PROVIDER>\" page.*?            \)\n"
-o_txt_new, count = re.subn(pattern, auto_signup_code, o_txt, flags=re.DOTALL)
-if count == 0:
-    raise RuntimeError("Could not find signup redirect block in oidc.py")
+o_txt_new = "import re\n" + before + auto_signup_code + after
 open(oidc_path, "w").write(o_txt_new)
 print("2. Patched h/views/oidc.py -> Zero-click auto-signup with GitLab username")
 
 # 3. Patch build/scripts/login-forms.bundle.js: Replace Google text & SVG icon with GitLab fox logo
 bundle_path = "/var/lib/hypothesis/build/scripts/login-forms.bundle.js"
-shutil.copy2(bundle_path + ".bak" if __import__("os").path.exists(bundle_path + ".bak") else bundle_path, bundle_path + ".bak")
+if not os.path.exists(bundle_path + ".bak"):
+    shutil.copy2(bundle_path, bundle_path + ".bak")
 b_txt = open(bundle_path + ".bak").read()
 
 gitlab_svg_fn = (
@@ -183,5 +189,5 @@ open(bundle_path, "w").write(b_txt)
 print(f"3. Patched login-forms.bundle.js (icon replaced={c_icon}) -> GitLab text & Fox logo")
 EOF
 docker compose cp apply_gitlab_sso.py web:/tmp/apply_gitlab_sso.py
-docker compose exec web python3 /tmp/apply_gitlab_sso.py
+docker compose exec -u root web python3 /tmp/apply_gitlab_sso.py
 docker compose restart web
