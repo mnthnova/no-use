@@ -191,3 +191,17 @@ EOF
 docker compose cp apply_gitlab_sso.py web:/tmp/apply_gitlab_sso.py
 docker compose exec -u root web python3 /tmp/apply_gitlab_sso.py
 docker compose restart web
+
+
+
+
+
+docker compose exec -u root web python3 -c '
+p = "/var/lib/hypothesis/h/views/oidc.py"
+t = open(p).read()
+if t.startswith("import re\n"):
+    t = t[len("import re\n"):]
+t = t.replace("import secrets\n", "import re\nimport secrets\n", 1)
+open(p, "w").write(t)
+print("FIXED oidc.py import order!")
+'
