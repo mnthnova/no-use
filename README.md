@@ -297,3 +297,20 @@ o_txt_new = "import re\n" + before + auto_signup_code + after
 open(oidc_path, "w").write(o_txt_new)
 print("FIXED CACHE CRASH & DB ROLLBACK!")
 '
+
+
+
+
+
+
+
+
+
+
+docker compose exec -u root web python3 -c "
+p = '/var/lib/hypothesis/h/views/oidc.py'
+t = open(p).read()
+t = t.replace('f\"user_{decoded_idtoken[\"sub\"]}\"', 'f\"user_{decoded_idtoken[' + chr(39) + 'sub' + chr(39) + ']}\"')
+open(p, 'w').write(t)
+print('SyntaxError fixed! Single quotes applied.')
+"
