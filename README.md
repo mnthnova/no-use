@@ -205,3 +205,13 @@ t = t.replace("import secrets\n", "import re\nimport secrets\n", 1)
 open(p, "w").write(t)
 print("FIXED oidc.py import order!")
 '
+
+
+docker compose exec -u root web python3 -c '
+import re
+p = "/var/lib/hypothesis/h/views/oidc.py"
+t = open(p).read()
+t = t.replace("self._user_service.fetch_by_email(email, self._request.default_authority)", "self._user_service.fetch(email, self._request.default_authority)")
+open(p, "w").write(t)
+print("FIXED AttributeError in oidc.py!")
+'
