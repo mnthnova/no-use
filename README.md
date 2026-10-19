@@ -314,3 +314,19 @@ t = t.replace('f\"user_{decoded_idtoken[\"sub\"]}\"', 'f\"user_{decoded_idtoken[
 open(p, 'w').write(t)
 print('SyntaxError fixed! Single quotes applied.')
 "
+
+
+
+
+
+
+
+docker compose exec -u root web python3 -c '
+p = "/var/lib/hypothesis/h/views/oidc.py"
+t = open(p).read()
+if t.startswith("import re\n"):
+    t = t[10:]
+    t = t.replace("import secrets\n", "import re\nimport secrets\n", 1)
+    open(p, "w").write(t)
+print("FIXED import order!")
+'
