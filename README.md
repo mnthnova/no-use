@@ -215,3 +215,85 @@ t = t.replace("self._user_service.fetch_by_email(email, self._request.default_au
 open(p, "w").write(t)
 print("FIXED AttributeError in oidc.py!")
 '
+
+
+
+
+
+
+
+
+docker compose exec -u root web python3 -c '
+import re, os
+oidc_path = "/var/lib/hypothesis/h/views/oidc.py"
+o_txt = open(oidc_path + ".bak").read()
+o_txt = o_txt.replace("provider_name=\"Google\"", "provider_name=\"GitLab\"")
+o_txt = o_txt.replace("success_message=\"Google account connected\"", "success_message=\"GitLab account connected\"")
+
+start_marker = "            # Redirect to the \"Sign up to Hypothesis with <PROVIDER>\" page to"
+end_marker = "        headers = login(user, self._request)"
+
+before = o_txt.split(start_marker)[0]
+after = end_marker + o_txt.split(end_marker, 1)[1]
+
+auto_signup_code = """            # Auto-create user from GitLab username without showing signup form
+            from h.models import User
+            raw_uname = (
+                decoded_idtoken.get("preferred_username")
+                or decoded_idtoken.get("nickname")
+                or (decoded_idtoken.get("email") or "").split("@")[0]
+                or f"user_{decoded_idtoken[\"sub\"]}"
+            )
+            clean_uname = re.sub(r"[^A-Za-z0-9._]", "_", raw_uname).strip(".")
+            if len(clean_uname) < 3:
+                clean_uname = f"{clean_uname}_gl"
+            clean_uname = clean_uname[:30]
+            email = decoded_idtoken.get("email") or f"{clean_uname}@gitlab.local"
+            
+            user = self._request.db.query(User).filter(User.email == email, User.authority == self._request.default_authority).first()
+            if not user:
+                signup_svc = self._request.find_service(name="user_signup")
+                base_uname = clean_uname
+                for suffix in ["", "_1", "_2", "_3", "_4", "_5"]:
+                    try_uname = f"{base_uname[:30-len(suffix)]}{suffix}"
+                    existing = self._request.db.query(User).filter(User.username == try_uname, User.authority == self._request.default_authority).first()
+                    if not existing:
+                        clean_uname = try_uname
+                        break
+                user = signup_svc.signup(
+                    require_activation=False,
+                    username=clean_uname,
+                    email=email,
+                    display_name=decoded_idtoken.get("name") or clean_uname,
+                    identities=[{
+                        "provider": self.settings.provider,
+                        "provider_unique_id": decoded_idtoken["sub"],
+                        "email": email,
+                        "name": decoded_idtoken.get("name"),
+                        "given_name": decoded_idtoken.get("given_name"),
+                        "family_name": decoded_idtoken.get("family_name"),
+                    }],
+                )
+                self._request.db.flush()
+            else:
+                self._oidc_service.add_identity(
+                    user,
+                    self.settings.provider,
+                    provider_unique_id=decoded_idtoken["sub"],
+                    email=email,
+                    name=decoded_idtoken.get("name"),
+                    given_name=decoded_idtoken.get("given_name"),
+                    family_name=decoded_idtoken.get("family_name"),
+                )
+                self._request.db.flush()
+                
+            # ROOT CAUSE FIX: Inject the newly created user directly into the memory cache
+            # so the cookie generator (AuthTicketService) does not crash and trigger a DB rollback!
+            user_svc = self._request.find_service(name="user")
+            user_svc._cache[user.userid] = user
+
+"""
+o_txt_new = "import re\n" + before + auto_signup_code + after
+open(oidc_path, "w").write(o_txt_new)
+print("FIXED CACHE CRASH & DB ROLLBACK!")
+'
