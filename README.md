@@ -330,3 +330,31 @@ if t.startswith("import re\n"):
     open(p, "w").write(t)
 print("FIXED import order!")
 '
+
+
+
+
+events {}
+http {
+    server {
+        listen 80;
+
+        # 1. Route /hclient/ traffic to your Ubuntu Python service on port 8001
+        location /hclient/ {
+            proxy_pass http://host.docker.internal:8001/;
+            proxy_set_header Host $host;
+        }
+
+        # 2. Route everything else to Hypothesis
+        location / {
+            proxy_pass http://web:5000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            
+            # Websocket support
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+    }
+}
