@@ -1,0 +1,202 @@
+import os, re, shutil
+
+# ==========================================
+# CONFIGURE YOUR DYNAMIC SETTINGS HERE
+# ==========================================
+CUSTOM_LOGO_URL = "https://about.gitlab.com/images/press/logo/png/gitlab-icon-rgb.png"
+SSO_BUTTON_TEXT = "GitLab"
+# ==========================================
+
+print("Starting Production SSO Patch...")
+
+# 1. Patch URLs in routes.py
+routes_path = "/var/lib/hypothesis/h/routes.py"
+if not os.path.exists(routes_path + ".bak"): shutil.copy2(routes_path, routes_path + ".bak")
+r_txt = open(routes_path + ".bak").read()
+r_txt = r_txt.replace('"/oidc/connect/google"', '"/oidc/connect/gitlab"')
+r_txt = r_txt.replace('"/oidc/login/google"', '"/oidc/login/gitlab"')
+r_txt = r_txt.replace('"/oidc/redirect/google"', '"/oidc/redirect/gitlab"')
+open(routes_path, "w").write(r_txt)
+print("1. Routes patched to /oidc/.../gitlab")
+
+# 2. Patch h/views/oidc.py (Flawless Auto-Signup, Cache Bypass, Dynamic Domains)
+oidc_path = "/var/lib/hypothesis/h/views/oidc.py"
+if not os.path.exists(oidc_path + ".bak"): shutil.copy2(oidc_path, oidc_path + ".bak")
+o_txt = open(oidc_path + ".bak").read()
+
+if "import re\n" not in o_txt: o_txt = o_txt.replace("import secrets\n", "import secrets\nimport re\n", 1)
+o_txt = o_txt.replace('provider_name="Google"', f'provider_name="{SSO_BUTTON_TEXT}"')
+o_txt = o_txt.replace('success_message="Google account connected"', f'success_message="{SSO_BUTTON_TEXT} account connected"')
+
+start_marker = '            # Redirect to the "Sign up to Hypothesis with <PROVIDER>" page to'
+end_marker = '        headers = login(user, self._request)'
+
+if start_marker in o_txt and end_marker in o_txt:
+    before = o_txt.split(start_marker)[0]
+    after = end_marker + o_txt.split(end_marker, 1)[1]
+
+    auto_signup_code = """            # Auto-create user dynamically from ID token
+            from h.models import User
+            authority = self._request.default_authority
+            
+            raw_uname = (
+                decoded_idtoken.get("preferred_username")
+                or decoded_idtoken.get("nickname")
+                or (decoded_idtoken.get("email") or "").split("@")[0]
+                or f"user_{decoded_idtoken['sub']}"
+            )
+            clean_uname = re.sub(r"[^A-Za-z0-9._]", "_", raw_uname).strip(".")
+            if len(clean_uname) < 3: clean_uname = f"{clean_uname}_sso"
+            clean_uname = clean_uname[:30]
+            email = decoded_idtoken.get("email") or f"{clean_uname}@{authority}"
+            
+            user = self._request.db.query(User).filter(User.email == email, User.authority == authority).first()
+            if not user:
+                signup_svc = self._request.find_service(name="user_signup")
+                base_uname = clean_uname
+                for suffix in ["", "_1", "_2", "_3", "_4", "_5"]:
+                    try_uname = f"{base_uname[:30-len(suffix)]}{suffix}"
+                    if not self._request.db.query(User).filter(User.username == try_uname, User.authority == authority).first():
+                        clean_uname = try_uname
+                        break
+                user = signup_svc.signup(
+                    require_activation=False,
+                    username=clean_uname,
+                    email=email,
+                    display_name=decoded_idtoken.get("name") or clean_uname,
+                    identities=[{
+                        "provider": self.settings.provider,
+                        "provider_unique_id": decoded_idtoken["sub"],
+                        "email": email,
+                        "name": decoded_idtoken.get("name"),
+                        "given_name": decoded_idtoken.get("given_name"),
+                        "family_name": decoded_idtoken.get("family_name"),
+                    }],
+                )
+            else:
+                self._oidc_service.add_identity(
+                    user, self.settings.provider,
+                    provider_unique_id=decoded_idtoken["sub"],
+                    email=email, name=decoded_idtoken.get("name"),
+                    given_name=decoded_idtoken.get("given_name"), family_name=decoded_idtoken.get("family_name"),
+                )
+                
+            self._request.db.flush()
+            user_svc = self._request.find_service(name="user")
+            user_svc._cache[user.userid] = user
+
+"""
+    auto_signup_code = auto_signup_code.replace("f\"user_{decoded_idtoken['sub']}\"", "f\"user_{decoded_idtoken[" + chr(39) + "sub" + chr(39) + "]}\"")
+    o_txt = before + auto_signup_code + after
+
+open(oidc_path, "w").write(o_txt)
+print("2. Flawless DB Auto-signup + Dynamic Domains Applied")
+
+# 3. Patch JS Bundle (Dynamically injects image tag instead of raw SVG)
+bundle_path = "/var/lib/hypothesis/build/scripts/login-forms.bundle.js"
+if not os.path.exists(bundle_path + ".bak"): shutil.copy2(bundle_path, bundle_path + ".bak")
+b_txt = open(bundle_path + ".bak").read()
+
+# Replace the SVG function with a React-compiled HTML <img> tag
+img_fn = f'function rt({{...e}}){{return Le("img",{{src:"{CUSTOM_LOGO_URL}",height:"20",width:"20",alt:"{SSO_BUTTON_TEXT}",style:{{objectFit:"contain",marginRight:"8px"}}}})}}function ot('
+b_txt, c_icon = re.subn(r"function rt\(\{\.\.\.e\}\)\{return Le\(\"svg\".*?function ot\(", img_fn, b_txt)
+
+b_txt = b_txt.replace('children:"Google"', f'children:"{SSO_BUTTON_TEXT}"')
+b_txt = b_txt.replace('"aria-label":"Google icon"', f'"aria-label":"{SSO_BUTTON_TEXT} icon"')
+b_txt = b_txt.replace('Connect <b>Google</b>', f'Connect <b>{SSO_BUTTON_TEXT}</b>')
+
+open(bundle_path, "w").write(b_txt)
+print(f"3. Login Bundle Patched -> {SSO_BUTTON_TEXT} Text & Custom Logo")
+
+
+
+
+
+
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=F$$asE!iQ8a_mnthn
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  elasticsearch:
+    image: elasticsearch:7.17.9
+    restart: always
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+
+  rabbitmq:
+    image: rabbitmq:3.8-management-alpine
+    restart: always
+
+  web:
+    image: hypothesis/hypothesis:20260710-g5f075f1
+    restart: always
+    ports:
+      # Maps your VM's open Port 80 to the container's Port 5000
+      - "80:5000"
+    depends_on:
+      - postgres
+      - elasticsearch
+      - rabbitmq
+    environment:
+      - DATABASE_URL=postgresql://postgres:F$$asE!iQ8a_mnthn@postgres/postgres
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - ELASTICSEARCH_INDEX=hypothesis
+      - BROKER_URL=amqp://guest:guest@rabbitmq:5672/
+      - SECRET_KEY=mnthnmnthn
+      - H_API_AUTH_COOKIE_SECRET_KEY=mnthnmnthn
+      - H_API_AUTH_COOKIE_SALT=leoleo
+      
+      # Core App Config (NO PORTS NEEDED BECAUSE IT RUNS ON PORT 80)
+      - APP_URL=http://YOUR_PRODUCTION_IP_OR_DOMAIN
+      - CLIENT_URL=http://YOUR_PRODUCTION_IP_OR_DOMAIN/build/boot.js
+      - WEBSOCKET_URL=ws://YOUR_PRODUCTION_IP_OR_DOMAIN/ws
+      - AUTHORITY=gitlab.tsip.intratmc.com
+      - CORS_ORIGINS=*
+      - ALLOWED_ORIGINS=*
+      
+      # Internal Nginx/Websocket Config
+      - ENABLE_NGINX=true
+      - ENABLE_WEB=true
+      - ENABLE_WORKER=true
+      - ENABLE_WEBSOCKET_MONOLITHIC=true
+      - ENABLE_WEBSOCKET=false
+      - PORT=5001
+      - WEB_PORT=5001
+      - WEBSOCKET_PORT=5002
+      - WEB_NUM_WORKERS=2
+      - WEBSOCKET_NUM_WORKERS=2
+      - MODEL_CREATE_ALL=true
+
+      # OIDC / GitLab SSO (Point these directly to your production GitLab)
+      - H_AUTHENTICATION_PROVIDER=gitlab
+      - JWT_SIGNING_KEY=mnthnmnthn
+      - OIDC_CLIENTID_GOOGLE=your_gitlab_client_id
+      - OIDC_CLIENTSECRET_GOOGLE=your_gitlab_client_secret
+      - OIDC_AUTHORIZATIONURL_GOOGLE=http://gitlab.tsip.intratmc.com/oauth/authorize
+      - OIDC_TOKENURL_GOOGLE=http://gitlab.tsip.intratmc.com/oauth/token
+      - OIDC_KEYSETURL_GOOGLE=http://gitlab.tsip.intratmc.com/oauth/discovery/keys
+
+  # Run hclient internally so VPN drops don't kill it
+  hclient:
+    build: ./hclient  # Assumes your hclient python code is in an 'hclient' folder next to this file
+    restart: always
+    depends_on:
+      - web
+    environment:
+      # hclient talks to Hypothesis via internal Docker DNS, completely ignoring Port 80
+      - HYPOTHESIS_API_URL=http://web:5000/api 
+
+volumes:
+  pg_data:
+  es_data:
+
