@@ -201,4 +201,6 @@ volumes:
   es_data:
 
 
-docker compose exec web python3 -c "import re; print('\n---\n'.join(re.findall(r'return Le\(\"svg\",.{0,150}', open('/var/lib/hypothesis/build/scripts/login-forms.bundle.js').read())))"
+# Replace the ORCID SVG with a React-compiled HTML <img> tag
+    img_tag = f'return Le("img",{{src:"{CUSTOM_LOGO_URL}",height:"20",width:"20",alt:"{SSO_BUTTON_TEXT}",style:{{objectFit:"contain",marginRight:"8px"}}}})'
+    b_txt = re.sub(r'return Le\("svg",\{version:"1\.1",id:"svg9".*?\}\]\}\)', img_tag, b_txt)
