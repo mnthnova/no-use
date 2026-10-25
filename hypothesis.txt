@@ -200,3 +200,5 @@ volumes:
   pg_data:
   es_data:
 
+
+docker compose exec web python3 -c "import re; print('\n---\n'.join(re.findall(r'return Le\(\"svg\",.{0,150}', open('/var/lib/hypothesis/build/scripts/login-forms.bundle.js').read())))"
