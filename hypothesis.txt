@@ -201,20 +201,21 @@ volumes:
   es_data:
 
 
-# 3. Patch JS Bundle (Dynamically injects image tag)
-    bundle_path = "/var/lib/hypothesis/build/scripts/login-forms.bundle.js"
-    if not os.path.exists(bundle_path + ".bak"): shutil.copy2(bundle_path, bundle_path + ".bak")
-    b_txt = open(bundle_path + ".bak").read()
+# 3. Patch JS Bundle (The FOOLPROOF CSS Method)
+bundle_path = "/var/lib/hypothesis/build/scripts/login-forms.bundle.js"
+if not os.path.exists(bundle_path + ".bak"): shutil.copy2(bundle_path, bundle_path + ".bak")
+b_txt = open(bundle_path + ".bak").read()
 
-    # Target the EXACT green color code (#A6CE39) of the ORCID logo to guarantee removal
-    orcid_svg_regex = r'Le\("svg",\{.*?#A6CE39.*?\}\]\}\)'
-    custom_img_tag = f'Le("img",{{src:"{CUSTOM_LOGO_URL}",height:"24",width:"24",alt:"{SSO_BUTTON_TEXT}",style:{{marginRight:"8px"}}}})'
-    
-    # Perform the swaps
-    b_txt = re.sub(orcid_svg_regex, custom_img_tag, b_txt)
-    b_txt = b_txt.replace('children:"ORCID"', f'children:"{SSO_BUTTON_TEXT}"')
-    b_txt = b_txt.replace('"aria-label":"ORCID icon"', f'"aria-label":"{SSO_BUTTON_TEXT} icon"')
-    b_txt = b_txt.replace('Connect <b>ORCID</b>', f'Connect <b>{SSO_BUTTON_TEXT}</b>')
+# 1. Update the text strings
+b_txt = b_txt.replace('children:"ORCID"', f'children:"{SSO_BUTTON_TEXT}"')
+b_txt = b_txt.replace('"aria-label":"ORCID icon"', f'"aria-label":"{SSO_BUTTON_TEXT} icon"')
+b_txt = b_txt.replace('Connect <b>ORCID</b>', f'Connect <b>{SSO_BUTTON_TEXT}</b>')
 
-    open(bundle_path, "w").write(b_txt)
-    print(f"3. Login Bundle Patched -> {SSO_BUTTON_TEXT} Text & Custom Logo")
+# 2. Inject CSS globally to hide the ORCID SVG and show the Palantir logo instead!
+css_hack = f""";try{{document.head.insertAdjacentHTML("beforeend", '<style>a[href*="/oidc/login/gitlab"] > svg:first-child {{ display: none !important; }} a[href*="/oidc/login/gitlab"]::before {{ content: ""; display: inline-block; width: 24px; height: 24px; background: url("{CUSTOM_LOGO_URL}") center/contain no-repeat; margin-right: 8px; }}</style>');}}catch(e){{}}"""
+
+if "insertAdjacentHTML" not in b_txt:
+    b_txt += css_hack
+
+open(bundle_path, "w").write(b_txt)
+print(f"3. Login Patched -> {SSO_BUTTON_TEXT} (CSS injected successfully!)")
