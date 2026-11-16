@@ -27,6 +27,43 @@ def get_translation(text, to_lang):
         print(f"  [API ERROR] {e}")
     return text
 
+def translate_plantuml_block(uml_text, target_lang):
+    """Parses PlantUML code, translates ONLY human text, and protects diagram syntax."""
+    translated_lines = []
+    
+    for line in uml_text.splitlines():
+        # 1. Skip structural keywords that should never be translated
+        if line.strip().startswith(('skinparam', 'activate', 'deactivate', 'destroy', '@startuml', '@enduml', '.. uml::', 'autonumber')):
+            translated_lines.append(line)
+            continue
+
+        # 2. Extract and translate text after a colon (e.g., A -> B: "Do Work")
+        colon_match = re.match(r'^([^:]+:[ \t]*)(.+)$', line)
+        
+        # 3. Extract and translate text inside quotes (e.g., participant "First Class" as A)
+        quote_match = re.search(r'"([^"]+)"', line)
+
+        if colon_match and ('->' in line or 'note' in line.lower()):
+            syntax_part = colon_match.group(1) # E.g., 'A -> B: '
+            human_text = colon_match.group(2).strip().strip('"') # E.g., 'Do Work'
+            
+            translated_text = get_translation(human_text, to_lang=target_lang)
+            translated_lines.append(f'{syntax_part}{translated_text}')
+            
+        elif quote_match and line.strip().startswith(('participant', 'actor', 'component', 'node', 'database', 'rectangle')):
+            human_text = quote_match.group(1)
+            translated_text = get_translation(human_text, to_lang=target_lang)
+            
+            # Replace ONLY the text inside the quotes, preserving the alias (as A)
+            new_line = line.replace(f'"{human_text}"', f'"{translated_text}"')
+            translated_lines.append(new_line)
+            
+        else:
+            # If it doesn't match a translatable pattern, leave the code intact
+            translated_lines.append(line)
+
+    return '\n'.join(translated_lines)
+
 def process_po_directory(locale_dir, target_lang):
     if not os.path.exists(locale_dir):
         print(f"[WARNING] Locale directory not found: {locale_dir}")
@@ -42,14 +79,22 @@ def process_po_directory(locale_dir, target_lang):
                 updated = False
                 for entry in po:
                     is_jp = contains_japanese(entry.msgid)
+                    is_uml = ".. uml::" in entry.msgid or "@startuml" in entry.msgid
                     
                     # For English Output: Translate if the source is Japanese
                     if target_lang == "en" and is_jp:
-                        entry.msgstr = get_translation(entry.msgid, to_lang="en")
+                        if is_uml:
+                            entry.msgstr = translate_plantuml_block(entry.msgid, "en")
+                        else:
+                            entry.msgstr = get_translation(entry.msgid, to_lang="en")
                         updated = True
+                        
                     # For Japanese Output: Translate if the source is English
                     elif target_lang == "ja" and not is_jp:
-                        entry.msgstr = get_translation(entry.msgid, to_lang="ja")
+                        if is_uml:
+                            entry.msgstr = translate_plantuml_block(entry.msgid, "ja")
+                        else:
+                            entry.msgstr = get_translation(entry.msgid, to_lang="ja")
                         updated = True
                 
                 if updated:
@@ -69,7 +114,8 @@ def main():
     print("\n--- Translating English blocks to Japanese ---")
     process_po_directory(ja_locale_dir, target_lang="ja")
 
-
+if __name__ == "__main__":
+    main()
 
 
 
