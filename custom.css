@@ -1,56 +1,80 @@
-/* Make the top breadcrumb/home icon bar sticky */
-.rst-content > div[role="navigation"] {
-    position: sticky !important;
-    top: 0 !important;
-    background-color: #fcfcfc !important; /* Matches standard RTD background */
-    z-index: 999 !important;
-    padding-top: 20px !important;
-    margin-top: -20px !important; /* Offsets the padding so it sits flush */
-}
+<style>
+  .custom-kioxia-cover {
+    position: relative !important;
+    width: 100% !important;
+    height: 23.8cm !important;
+    font-family: "Times New Roman", Times, serif !important;
+    color: #222222 !important;
+    page-break-after: always !important;
+    box-sizing: border-box !important;
+  }
 
-/* Ensure the line under the breadcrumbs moves with it */
-.rst-content > div[role="navigation"] hr {
-    margin-bottom: 0px !important;
-    padding-bottom: 10px !important;
-}
+  .cover-stamp-wrapper {
+    width: 100% !important;
+    text-align: right !important;
+    padding-top: 0.3cm !important;
+    margin-bottom: 5.5cm !important;
+  }
 
+  .cover-stamp-img {
+    width: 85px !important;
+    height: auto !important;
+    border: none !important;
+    margin: 0 !important;
+    display: inline-block !important;
+  }
 
+  .cover-titles {
+    width: 100% !important;
+    text-align: center !important;
+    margin-bottom: 5.5cm !important;
+  }
 
-            select[size] {
-                height: auto !important;
-                max-height: 160px !important;
-                overflow-y: auto !important;
-                padding: 4px !important;
-            }
-            
-            
+  .cover-title-line {
+    font-family: "Times New Roman", Times, serif !important;
+    font-size: 19pt !important;
+    font-weight: bold !important;
+    line-height: 1.9 !important;
+    color: #222222 !important;
+    text-align: center !important;
+  }
 
-/* 1. SECTION HEADINGS ONLY */
-/* Colors the H1/H2/H3 but protects the black paragraphs beneath them */
-section.red > h1, section.red > h2, section.red > h3, section.red > h4 { color: red !important; }
-section.lime > h1, section.lime > h2, section.lime > h3, section.lime > h4 { color: lime !important; }
-section.violet > h1, section.violet > h2, section.violet > h3, section.violet > h4 { color: violet !important; }
-section.blue > h1, section.blue > h2, section.blue > h3, section.blue > h4 { color: blue !important; }
+  .cover-company {
+    width: 100% !important;
+    text-align: center !important;
+    font-family: "Times New Roman", Times, serif !important;
+    font-size: 13.5pt !important;
+    font-weight: bold !important;
+    color: #222222 !important;
+  }
 
-/* 2. INLINE WORDS & SINGLE PARAGRAPHS */
-/* Keeps your inline :red:`word` and single paragraph colors working normally */
-span.red, p.red { color: red !important; }
-span.lime, p.lime { color: lime !important; }
-span.violet, p.violet { color: violet !important; }
-span.blue, p.blue { color: blue !important; }
+  .cover-meta-wrapper {
+    position: absolute !important;
+    bottom: 0.4cm !important;
+    right: 0 !important;
+  }
 
+  table.cover-meta-table {
+    width: auto !important;
+    border-collapse: collapse !important;
+    margin: 0 !important;
+  }
 
+  table.cover-meta-table td {
+    border: 1px solid #555555 !important;
+    padding: 3px 12px !important;
+    font-family: "Times New Roman", Times, serif !important;
+    font-size: 9.5pt !important;
+    color: #222222 !important;
+    text-align: left !important;
+    background: transparent !important;
+  }
 
-/* 1. SECTION HEADINGS ONLY (Prevents color from bleeding to the rest of the page) */
-section.red > h1, section.red > h2, section.red > h3, section.red > h4, section.red > h5, section.red > h6 { color: red !important; }
-section.lime > h1, section.lime > h2, section.lime > h3, section.lime > h4, section.lime > h5, section.lime > h6 { color: lime !important; }
-section.violet > h1, section.violet > h2, section.violet > h3, section.violet > h4, section.violet > h5, section.violet > h6 { color: violet !important; }
-section.blue > h1, section.blue > h2, section.blue > h3, section.blue > h4, section.blue > h5, section.blue > h6 { color: blue !important; }
+  table.cover-meta-table td.meta-label {
+    min-width: 120px !important;
+  }
 
-/* 2. EVERYTHING ELSE (Tables, Lists, Paragraphs, Inline Words) */
-/* Colors the target block and every nested element inside it (like table cells or list items), UNLESS it is a section */
-.red:not(section), .red:not(section) * { color: red !important; }
-.lime:not(section), .lime:not(section) * { color: lime !important; }
-.violet:not(section), .violet:not(section) * { color: violet !important; }
-.blue:not(section), .blue:not(section) * { color: blue !important; }
-
+  table.cover-meta-table td.meta-value {
+    min-width: 90px !important;
+  }
+</style>
