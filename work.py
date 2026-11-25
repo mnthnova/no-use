@@ -131,47 +131,68 @@ if __name__ == "__main__":
 
 
 
+INTERNAL_API_URL = "YOUR_INTERNAL_API_URL_HERE"
+
+def contains_japanese(text):
+    return bool(re.search(r'[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FBF\u3000-\u303F\uFF00-\uFFEF]', text))
+
 def translate_plantuml_in_memory(app, docname, source):
-    # Only trigger translation if this is the Japanese build
-    if not any("language=ja" in arg for arg in sys.argv):
+    # 1. GATEKEEPER: Skip during gettext or mixed build
+    target_lang = app.config.language
+    if app.builder.name == 'gettext' or target_lang not in ('ja', 'en'):
         return
 
     raw_rst_text = source[0]
 
+    def call_api(text):
+        clean = text.strip()
+        if not clean or clean.startswith(('http', '|')):
+            return text
+
+        is_jp = contains_japanese(clean)
+        # Only call API if text is in the opposite language
+        if target_lang == 'ja' and is_jp:
+            return text
+        if target_lang == 'en' and not is_jp:
+            return text
+
+        try:
+            payload = {
+                "texts": [clean],
+                "from_lang": "auto",
+                "to_lang": "japanese" if target_lang == "ja" else "english"
+            }
+            res = requests.post(
+                INTERNAL_API_URL,
+                json=payload,
+                timeout=10,
+                verify=False,
+                proxies={"http": None, "https": None}
+            )
+            data = res.json()
+            if data.get("status") == "ok" and data.get("texts"):
+                return data["texts"][0]
+        except Exception:
+            pass
+        return text
+
     def translate_uml_block(match):
         uml_block = match.group(0)
 
-        def call_api(eng_text):
-            # Skip empty lines, variables, or URLs
-            if not eng_text.strip() or eng_text.startswith(('http', '|')): 
-                return eng_text
-            try:
-                payload = {"texts": [eng_text], "from_lang": "english", "to_lang": "japanese"}
-                # Replace with your actual internal API URL
-                res = requests.post("YOUR_INTERNAL_API_URL_HERE", json=payload, timeout=10, verify=False)
-                return res.json()["texts"][0]
-            except Exception:
-                return eng_text # Fallback to English on API failure
+        # Translate Participant Names (Inside Quotes)
+        uml_block = re.sub(r'"([^"]+)"', lambda m: f'"{call_api(m.group(1))}"', uml_block)
 
-        # 1. Translate Participant Names (Inside Quotes)
-        def translate_quotes(q_match):
-            return f'"{call_api(q_match.group(1))}"'
-        
-        uml_block = re.sub(r'"([^"]+)"', translate_quotes, uml_block)
-
-        # 2. Translate Arrow Messages (After Colons)
-        def translate_colon_text(c_match):
+        # Translate Arrow Messages / Notes (After Colons)
+        def translate_colon(c_match):
             syntax_part = c_match.group(1)
-            eng_text = c_match.group(2)
-            # Skip if already translated by the quote regex in step 1
-            if eng_text.strip().startswith('"'): 
+            msg_text = c_match.group(2)
+            if msg_text.strip().startswith('"'):
                 return c_match.group(0)
-            ja_text = call_api(eng_text)
-            return f'{syntax_part}{ja_text}'
+            return f'{syntax_part}{call_api(msg_text)}'
 
-        uml_block = re.sub(r'^([ \t]*[^:\n]+:[ \t]*)(.+)$', translate_colon_text, uml_block, flags=re.MULTILINE)
+        uml_block = re.sub(r'^([ \t]*[^:\n]+:[ \t]*)(.+)$', translate_colon, uml_block, flags=re.MULTILINE)
         return uml_block
 
-    # Regex isolates ONLY .. uml:: blocks (matches the directive and all indented lines below it)
+    # Isolate ONLY .. uml:: blocks
     pattern = r'^\.\. uml::\n(?:^[ \t]+.*\n?)*'
     source[0] = re.sub(pattern, translate_uml_block, raw_rst_text, flags=re.MULTILINE)
