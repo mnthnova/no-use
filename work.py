@@ -131,64 +131,47 @@ if __name__ == "__main__":
 
 
 
+def translate_plantuml_in_memory(app, docname, source):
+    # Only trigger translation if this is the Japanese build
+    if not any("language=ja" in arg for arg in sys.argv):
+        return
 
+    raw_rst_text = source[0]
 
-def upload_file_to_svn_path(ticket, file_path, SVN_USERNAME, SVN_PASSWORD, BASE_PATH, SVN_URL_PATH, SVN_REPO_NAME, attachments_info):
-    """
-    attachments_info should be a list of dicts: [{"filename": "Manthan.txt", "id": "12345"}, ...]
-    """
-    try:
-        # Pass the full list of dicts directly to the commit function
-        svn_dest_url = copy_files_and_commit(
-            ticket, SVN_REPO_NAME, file_path, SVN_USERNAME, SVN_PASSWORD, BASE_PATH, SVN_URL_PATH, attachments_info
-        )
-        return svn_dest_url
-    except Exception as e:
-        logger.error(f"Exception during SVN upload for ticket {ticket}: {e}")
-        return None
+    def translate_uml_block(match):
+        uml_block = match.group(0)
 
-def copy_files_and_commit(ticket, SVN_REPO_NAME, file_path, SVN_USERNAME, SVN_PASSWORD, BASE_PATH, SVN_URL_PATH, attachments_info):
-    ticket_folder = str(ticket)
-    svn_ticket_url = f"{SVN_URL_PATH}/{ticket_folder}"
-    
-    try:
-        # 1. Check if the main ticket folder exists on the SVN server. If not, create it.
-        if run_command(["svn", "ls", svn_ticket_url, "--trust-server-cert", "--non-interactive"]).returncode != 0:
-            logger.info(f"Folder not found. Creating remote ticket folder: {svn_ticket_url}")
-            run_command(["svn", "mkdir", svn_ticket_url, "-m", f"Create ticket folder {ticket_folder}", "--trust-server-cert", "--non-interactive"])
+        def call_api(eng_text):
+            # Skip empty lines, variables, or URLs
+            if not eng_text.strip() or eng_text.startswith(('http', '|')): 
+                return eng_text
+            try:
+                payload = {"texts": [eng_text], "from_lang": "english", "to_lang": "japanese"}
+                # Replace with your actual internal API URL
+                res = requests.post("YOUR_INTERNAL_API_URL_HERE", json=payload, timeout=10, verify=False)
+                return res.json()["texts"][0]
+            except Exception:
+                return eng_text # Fallback to English on API failure
+
+        # 1. Translate Participant Names (Inside Quotes)
+        def translate_quotes(q_match):
+            return f'"{call_api(q_match.group(1))}"'
         
-        # 2. Process each attachment into its own isolated ID folder
-        for att in attachments_info:
-            filename = att["filename"]
-            att_id = att.get("id", "unknown")
-            
-            svn_att_url = f"{svn_ticket_url}/{att_id}"
-            local_att_path = os.path.join(file_path, SVN_REPO_NAME, ticket_folder, att_id)
-            
-            # Create the unique ID folder remotely if it doesn't exist
-            if run_command(["svn", "ls", svn_att_url, "--trust-server-cert", "--non-interactive"]).returncode != 0:
-                run_command(["svn", "mkdir", svn_att_url, "-m", f"Create attachment folder {att_id}", "--trust-server-cert", "--non-interactive"])
-            
-            # CHECKOUT ONLY THIS EMPTY ID FOLDER (Super fast, ignores all old attachments!)
-            logger.info(f"Checking out empty ID folder to {local_att_path}")
-            run_command(["svn", "checkout", svn_att_url, local_att_path, "--trust-server-cert", "--non-interactive"])
-            
-            # Copy the file from your temp path into the new working copy
-            source_file = os.path.join(file_path, filename)
-            dest_file = os.path.join(local_att_path, filename)
-            
-            logger.info(f"Copying {source_file} to {dest_file}")
-            shutil.copy(source_file, dest_file)
-            
-            # Add and commit the specific file
-            run_command(["svn", "add", filename, "--force"], cwd=local_att_path)
-            run_command(["svn", "commit", "-m", f"Commit for ticket {ticket_folder} file {filename}", "--trust-server-cert", "--non-interactive"], cwd=local_att_path)
-            
-        return svn_ticket_url
-        
-    except Exception as e:
-        logger.error(f"Exception during SVN operation for ticket {ticket}: {e}")
-        return None
+        uml_block = re.sub(r'"([^"]+)"', translate_quotes, uml_block)
 
-if __name__ == "__main__":
-    main()
+        # 2. Translate Arrow Messages (After Colons)
+        def translate_colon_text(c_match):
+            syntax_part = c_match.group(1)
+            eng_text = c_match.group(2)
+            # Skip if already translated by the quote regex in step 1
+            if eng_text.strip().startswith('"'): 
+                return c_match.group(0)
+            ja_text = call_api(eng_text)
+            return f'{syntax_part}{ja_text}'
+
+        uml_block = re.sub(r'^([ \t]*[^:\n]+:[ \t]*)(.+)$', translate_colon_text, uml_block, flags=re.MULTILINE)
+        return uml_block
+
+    # Regex isolates ONLY .. uml:: blocks (matches the directive and all indented lines below it)
+    pattern = r'^\.\. uml::\n(?:^[ \t]+.*\n?)*'
+    source[0] = re.sub(pattern, translate_uml_block, raw_rst_text, flags=re.MULTILINE)
